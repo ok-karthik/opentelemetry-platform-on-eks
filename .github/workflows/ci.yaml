@@ -56,9 +56,9 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       # ==============================================================================
-      # Build & Push Go Checkout Service
+      # Build & Push Go Product Service
       # ==============================================================================
-      - name: Build and Push Go Checkout Service
+      - name: Build and Push Go Product Service
         uses: docker/build-push-action@v5
         with:
           context: ./${{ env.APPS_SRC_DIR }}/golang-app
@@ -71,9 +71,9 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ==============================================================================
-      # Build & Push Python Payment Service
+      # Build & Push Python Product Info Service
       # ==============================================================================
-      - name: Build and Push Python Payment Service
+      - name: Build and Push Python Product Info Service
         uses: docker/build-push-action@v5
         with:
           context: ./${{ env.APPS_SRC_DIR }}/python-app

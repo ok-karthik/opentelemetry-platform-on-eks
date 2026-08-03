@@ -58,18 +58,32 @@ module "eks" {
   cluster_endpoint_public_access = true
 
   # 3. Configure the Managed Node Group
-  #    t3.medium (2 vCPU / 4 GB) × 2 = ~7 GB usable RAM.
-  #    LGTM single-replica distributed stack peaks at ~5.1 GB, which fits
-  #    across 2 nodes with spread scheduling.
-  #    Karpenter will scale OUT beyond these 2 nodes automatically if any
-  #    pod becomes Pending (e.g., during peak load or Mimir compaction).
+  #
+  #    Sized against the measured footprint of the trimmed stack, not a guess.
+  #    Summed pod requests across the observability namespace and the platform
+  #    add-ons come to roughly 1.8 vCPU and 4.4 GiB:
+  #
+  #      Mimir (8 pods)   0.40 vCPU / 1728 MiB
+  #      Loki  (1 pod)    0.10 vCPU /  256 MiB
+  #      Tempo (1 pod)    0.10 vCPU /  256 MiB
+  #      Grafana          0.05 vCPU /  192 MiB
+  #      OTel gateway x2  0.20 vCPU /  512 MiB
+  #      Karpenter        0.25 vCPU /  256 MiB
+  #      cert-manager, OTel operator, LB controller, CoreDNS, EBS CSI, agents
+  #
+  #    t3.medium (4 GiB, ~3.2 GiB allocatable) x2 leaves no headroom for
+  #    Mimir compaction spikes or a spot reclaim, and PVC-bound StatefulSets
+  #    cannot be rescheduled freely. t3.large (8 GiB) x2 gives ~14 GiB.
+  #
+  #    Karpenter scales OUT beyond these two nodes whenever a pod goes Pending.
   eks_managed_node_groups = {
     general = {
-      min_size       = 2
-      max_size       = 6
-      desired_size   = 2
-      instance_types = ["t3.medium"]
-      capacity_type  = "SPOT"
+      name           = var.node_group_name
+      min_size       = var.node_group_min_size
+      max_size       = var.node_group_max_size
+      desired_size   = var.node_group_desired_capacity
+      instance_types = var.node_group_instance_types
+      capacity_type  = var.node_group_capacity_type
       iam_role_additional_policies = {
         ebs = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
       }

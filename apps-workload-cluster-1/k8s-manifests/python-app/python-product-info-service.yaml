@@ -37,16 +37,24 @@ spec:
           env:
             - name: OTEL_SERVICE_NAME
               value: "python-product-info-service"
+
+            # Same node-local routing as the Go service — see the comment in
+            # golang-app/golang-product-service.yaml. Set here as well as in the
+            # Instrumentation CR because the operator does not overwrite an
+            # environment variable a container already declares.
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: "http://otel-collector-agent-collector.monitoring.svc.cluster.local:4317"
+              value: "http://$(HOST_IP):4317"
+
             - name: OTEL_SEMCONV_STABILITY_OPT_IN
               value: "http"
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
               value: "grpc"
             - name: OTEL_RESOURCE_ATTRIBUTES
-              value: "service.version=1.0.0,deployment.environment=dev"
-            - name: PYROSCOPE_SERVER_ADDRESS
-              value: "http://pyroscope.monitoring.svc.cluster.local:4040"
+              value: "service.namespace=product,service.version=1.0.0,deployment.environment=dev,team=product"
 
 ---
 apiVersion: v1

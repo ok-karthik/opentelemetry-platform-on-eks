@@ -1,0 +1,96 @@
+# ==============================================================================
+# Loki — SingleBinary mode
+#
+# Renders to exactly ONE pod. The grafana/loki chart defaults are tuned for a
+# production Simple-Scalable install and are far too large for a demo cluster:
+#
+#   chunksCache  (memcached)  -> requests 9830Mi memory   <- unschedulable
+#   resultsCache (memcached)  -> requests 1229Mi memory
+#   lokiCanary   (DaemonSet)  -> synthetic log generator
+#   gateway      (nginx)      -> extra hop we do not need in-cluster
+#
+# All four are disabled below. With them enabled, `helm_release.loki` blocks on
+# `wait = true` until the timeout expires, because the cache pods can never be
+# scheduled onto a t3-class node.
+#
+# Query/push endpoint for this configuration is:
+#   http://loki.monitoring.svc.cluster.local:3100
+# ==============================================================================
+
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+
+  commonConfig:
+    replication_factor: 1
+
+  # Pinned explicitly rather than using `useTestSchema`, which generates a
+  # throwaway schema intended for chart CI and not for an S3-backed install.
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+  storage:
+    type: s3
+    bucketNames:
+      chunks: ${loki_bucket}
+      ruler: ${loki_bucket}
+      admin: ${loki_bucket}
+    s3:
+      region: ${aws_region}
+
+  limits_config:
+    # Required for OTLP log ingestion — the OTel gateway writes resource and
+    # scope attributes as structured metadata. Without this, Loki 3.x rejects
+    # every OTLP push with "structured metadata is disabled".
+    allow_structured_metadata: true
+    volume_enabled: true
+    retention_period: 168h
+
+  compactor:
+    retention_enabled: true
+    delete_request_store: s3
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 10Gi
+    # Named explicitly so binding never depends on which StorageClass happens
+    # to hold the `is-default-class` annotation (EKS ships a default `gp2`).
+    storageClass: gp3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# Simple-Scalable components — unused in SingleBinary mode.
+read:
+  replicas: 0
+write:
+  replicas: 0
+backend:
+  replicas: 0
+
+# Everything below is a chart default that we deliberately switch off.
+gateway:
+  enabled: false
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+lokiCanary:
+  enabled: false
+test:
+  enabled: false
+minio:
+  enabled: false

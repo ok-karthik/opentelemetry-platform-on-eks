@@ -1,27 +1,20 @@
+# Dashboards for the Grafana sidecar.
+#
+# The sidecar (sidecar.dashboards.enabled in helm-values/grafana.yaml.tftpl)
+# watches this namespace for ConfigMaps labelled `grafana_dashboard: "1"` and
+# writes every key into Grafana's dashboard directory. It also generates the
+# dashboard *provider* definition itself.
+#
+# A second ConfigMap used to live here carrying a hand-written
+# `dashboards.yaml` provider file under the same label. The sidecar does not
+# treat that key specially — it dropped the provider YAML into the dashboard
+# folder alongside the JSON, where Grafana tried to parse it as a dashboard and
+# logged a failure on every reload. Provisioning is the chart's job; this file
+# ships dashboards only.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: lgtm-dashboards-provider
-  namespace: monitoring
-  labels:
-    grafana_dashboard: "1"
-data:
-  dashboards.yaml: |
-    apiVersion: 1
-    providers:
-      - name: 'default'
-        orgId: 1
-        folder: ''
-        type: file
-        disableDeletion: false
-        updateIntervalSeconds: 10
-        options:
-          path: /var/lib/grafana/dashboards
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: lgtm-dashboards
+  name: platform-golden-signals-dashboards
   namespace: monitoring
   labels:
     grafana_dashboard: "1"

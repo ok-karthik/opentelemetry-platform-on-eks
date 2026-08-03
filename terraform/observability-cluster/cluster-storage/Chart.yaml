@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cluster-storage
+description: Baseline gp3 StorageClass for the observability cluster
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
