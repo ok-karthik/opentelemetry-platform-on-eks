@@ -27,6 +27,12 @@ resource "aws_s3_bucket" "mimir_alertmanager" {
 # 2. IAM Policy for S3 Access
 #    s3:GetBucketLocation is required by Loki on startup to resolve the AWS
 #    region from the bucket name. Omitting it causes a 403 CrashLoopBackOff.
+#
+#    The multipart actions are required by Mimir and Tempo: block and chunk
+#    uploads above the SDK's 5 MiB threshold are sent as multipart uploads, and
+#    a failed part cannot be cleaned up without s3:AbortMultipartUpload. Without
+#    them, compaction appears to succeed while leaving orphaned parts behind and
+#    eventually fails with AccessDenied.
 data "aws_iam_policy_document" "grafana_stack_s3_access" {
   statement {
     actions = [
@@ -34,7 +40,10 @@ data "aws_iam_policy_document" "grafana_stack_s3_access" {
       "s3:GetBucketLocation",
       "s3:PutObject",
       "s3:GetObject",
-      "s3:DeleteObject"
+      "s3:DeleteObject",
+      "s3:AbortMultipartUpload",
+      "s3:ListBucketMultipartUploads",
+      "s3:ListMultipartUploadParts"
     ]
     resources = [
       aws_s3_bucket.loki_data.arn,

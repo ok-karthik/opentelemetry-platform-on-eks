@@ -31,7 +31,16 @@ func InitTelemetry(ctx context.Context) (func(context.Context) error, error) {
 	collectorAddr = strings.TrimPrefix(collectorAddr, "https://")
 
 	// 2. Define shared Resource Attributes (Service Name & Version)
+	//
+	// WithFromEnv is what makes OTEL_RESOURCE_ATTRIBUTES take effect. resource.New
+	// applies only the detectors it is handed, so without it the
+	// service.namespace / deployment.environment / team attributes set on the
+	// Deployment are silently dropped, and the gateway's routing and the
+	// dashboards' team filters see nothing. Explicit attributes are listed last
+	// so they win over anything supplied through the environment.
 	res, err := resource.New(ctx,
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
 		resource.WithAttributes(
 			semconv.ServiceNameKey.String("golang-product-service"),
 			semconv.ServiceVersionKey.String("1.0.0"),

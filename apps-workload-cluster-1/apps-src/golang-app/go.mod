@@ -1,4 +1,4 @@
-module golang-checkout-app
+module golang-product-service
 
 go 1.22
 

@@ -6,9 +6,18 @@ metadata:
 spec:
   # ==================== Exporter Configuration ====================
   # Tells the injected OTel SDK where to send telemetry.
-  # Here we point it to the Collector Agent running on the node.
+  #
+  # The OTel Operator names the Service it creates for a collector
+  # "<collector-name>-collector", so the DaemonSet declared as
+  # `otel-collector-agent` is reachable at otel-collector-agent-collector —
+  # the un-suffixed name resolves to nothing.
+  #
+  # This is the fallback for pods that do not set OTEL_EXPORTER_OTLP_ENDPOINT
+  # themselves. Workloads should prefer the node-local Downward API form used in
+  # python-product-info-service.yaml, which keeps k8sattributes enrichment
+  # working; this Service target round-robins across nodes.
   exporter:
-    endpoint: http://otel-collector-agent.monitoring.svc.cluster.local:4317
+    endpoint: http://otel-collector-agent-collector.monitoring.svc.cluster.local:4317
 
   # ==================== Propagator Configuration ====================
   # Configures how trace context is injected/extracted across HTTP headers.

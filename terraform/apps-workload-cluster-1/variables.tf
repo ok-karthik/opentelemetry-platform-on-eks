@@ -25,7 +25,7 @@ variable "node_group_instance_types" {
 variable "node_group_desired_capacity" {
   description = "Initial number of nodes in the node group"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "node_group_min_size" {
@@ -40,8 +40,13 @@ variable "node_group_max_size" {
   default     = 4
 }
 
-variable "node_group_type" {
-  description = "Pricing model for EKS worker nodes (spot or on-demand)"
+variable "node_group_capacity_type" {
+  description = "Pricing model for EKS worker nodes (SPOT or ON_DEMAND)"
   type        = string
-  default     = "on-demand"
+  default     = "SPOT"
+
+  validation {
+    condition     = contains(["SPOT", "ON_DEMAND"], var.node_group_capacity_type)
+    error_message = "node_group_capacity_type must be either SPOT or ON_DEMAND."
+  }
 }

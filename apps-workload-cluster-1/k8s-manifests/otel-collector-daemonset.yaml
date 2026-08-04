@@ -21,6 +21,26 @@ metadata:
   namespace: monitoring
 spec:
   mode: daemonset
+  # Pinned to contrib explicitly. The OTel Operator's default collector image is
+  # the slim `opentelemetry-collector-k8s` distribution, which does not ship
+  # every processor used below (groupbyattrs among them) — a collector
+  # referencing a component its binary lacks fails to start at all.
+  image: otel/opentelemetry-collector-contrib:0.156.0
+
+  # Binds the OTLP receivers on each node's own IP so workloads can reach their
+  # node-local agent via the Downward API (status.hostIP). dnsPolicy is set
+  # explicitly rather than left to the operator's default, because the agent
+  # still has to resolve otel-gateway-regional.monitoring.svc.cluster.local
+  # through CoreDNS while sharing the host's network namespace.
+  hostNetwork: true
+  dnsPolicy: ClusterFirstWithHostNet
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      memory: 384Mi
   env:
     - name: K8S_NODE_NAME
       valueFrom:
@@ -72,6 +92,14 @@ spec:
 
       # The k8sattributes processor calls the K8s API to find the owner pod
       # of the incoming OTLP IP, adding crucial metadata tags to traces.
+      #
+      # `filter.node_from_env_var` restricts this collector's pod cache to pods
+      # running on its OWN node, which keeps the watch cheap at scale. It also
+      # means enrichment only works for telemetry that arrives from a co-located
+      # pod — so workloads must target the node-local agent via the Downward API
+      # (status.hostIP), never the ClusterIP Service. Sending through the
+      # Service round-robins across nodes and silently produces spans with no
+      # k8s.* attributes whenever it lands on the wrong collector.
       k8sattributes:
         auth_type: "serviceAccount"
         passthrough: false
@@ -107,17 +135,22 @@ spec:
 
     service:
       pipelines:
+        # `resource` is wired into all three pipelines on purpose: a processor
+        # that is declared but left out of every pipeline is inert, and the
+        # team=product attribute it adds is what downstream routing, dashboards
+        # and cost allocation key off.
         traces:
           receivers: [otlp]
-          processors: [k8sattributes, batch]
+          processors: [k8sattributes, resource, batch]
           exporters: [otlp]
         metrics:
           receivers: [otlp, kubeletstats]
-          processors: [k8sattributes, batch]
+          processors: [k8sattributes, resource, batch]
           exporters: [otlp]
         logs:
           receivers: [otlp, filelog]
-          processors: [k8sattributes, transform/logs, groupbyattrs, batch]
+          processors:
+            [k8sattributes, resource, transform/logs, groupbyattrs, batch]
           exporters: [otlp]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

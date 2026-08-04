@@ -10,7 +10,17 @@ spec:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilization: 80
-  image: otel/opentelemetry-collector-contrib:0.109.0
+  image: otel/opentelemetry-collector-contrib:0.156.0
+
+  # Without an explicit request the operator creates the pods with none, so the
+  # scheduler treats two gateway replicas as free and the HPA has no CPU
+  # baseline to compute targetCPUUtilization against.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
 
   config:
     receivers:
@@ -120,10 +130,20 @@ spec:
         endpoint: "tempo.monitoring.svc.cluster.local:4317"
         tls:
           insecure: true
-          
-      # Pushes logs to Loki
-      loki:
-        endpoint: "http://loki-gateway.monitoring.svc.cluster.local:80/loki/api/v1/push"
+
+      # Pushes logs to Loki over its native OTLP endpoint.
+      #
+      # The dedicated `loki` exporter this used to call is deprecated upstream
+      # and has been removed from opentelemetry-collector-contrib. Loki 3.x
+      # accepts OTLP directly at /otlp/v1/logs — otlphttp appends the /v1/logs
+      # suffix, so the endpoint below stops at /otlp.
+      #
+      # The `loki-gateway` service no longer exists either: the chart's nginx
+      # gateway is disabled, so writes go straight to the single-binary pod.
+      otlphttp/loki:
+        endpoint: "http://loki.monitoring.svc.cluster.local:3100/otlp"
+        tls:
+          insecure: true
 
     service:
       telemetry:
@@ -161,7 +181,7 @@ spec:
         logs:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [loki]
+          exporters: [otlphttp/loki]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

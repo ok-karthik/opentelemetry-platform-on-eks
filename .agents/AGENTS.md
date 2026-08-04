@@ -36,11 +36,13 @@ apps-workload-cluster-1/
     golang-app/                 # Go demo service with programmatic OTel SDK setup
     python-app/                 # Python demo service using OTel auto-instrumentation
   k8s-manifests/
-    app-ingress.yaml
-    golang-product-service.yaml
-    python-product-info-service.yaml
     otel-collector-daemonset.yaml
-    otel-instrumentation*.yaml  # OTel Operator Instrumentation CRs
+    golang-app/
+      golang-product-service.yaml
+      app-ingress.yaml
+    python-app/
+      python-product-info-service.yaml
+      otel-instrumentation-python.yaml   # OTel Operator Instrumentation CR
 
 observability-platform/
   README.md
@@ -49,29 +51,42 @@ observability-platform/
     grafana-dashboards-configmap.yaml
     otel-collector-gateway.yaml
     svc-nlb-otel-gateway.yaml
-  routing-and-multitenancy/
+  01-app-onboarding/
     README.md
-    otel-gateway-multitenant.yaml
-  telemetry-budgeting/
+    service-onboarding-contract.md
+    values-examples/                     # Per-language app-team values files
+    instrumentation-manifests/           # Per-language Instrumentation CRs
+  02-gateway-configuration/
     README.md
-    otel-gateway-tail-sampling.yaml
-  golden-signals/
+    otel-gateway-multitenant.yaml        # Tenant/team routing
+    otel-gateway-tail-sampling.yaml      # Telemetry budgeting
+  03-dashboards-and-alerts/
     README.md
-    go-service-dashboard.json
-    python-service-dashboard.json
-  dashboard-and-alert-generators/
+    golden-signals/                      # Baseline dashboard JSON
+    helm-chart/                          # Dashboard + alert generator
+  04-cluster-gitops-baseline/
     README.md
-    helm-chart/
+    gitops-app-of-apps/
+    workload-cluster-baseline/
 
 terraform/
   apps-workload-cluster-1/       # Workload EKS cluster, ECR, networking, Helm installs
   observability-cluster/         # Dedicated observability EKS cluster and networking
+    helm-values/                 # Loki/Tempo/Mimir/Grafana values (.tftpl)
+    cluster-storage/             # gp3 StorageClass chart
+    karpenter-provisioner/       # NodePool + EC2NodeClass chart
   main.tf
 
 architecture-decisions-and-tradeoffs.md
+CLAUDE.md                        # Entry point for Claude Code; points here
 Makefile
 README.md
 ```
+
+`CLAUDE.md` at the repository root is a short pointer to this file plus the
+day-to-day commands. This file stays the source of truth — when conventions
+change, update here first and only adjust `CLAUDE.md` if the summary is now
+wrong.
 
 Ignore `.terraform/` generated module/provider content unless explicitly asked to inspect local Terraform state or generated modules.
 
@@ -91,13 +106,39 @@ It is responsible for:
 
 Keep this collector lightweight. It should enrich, batch, and forward. Heavy tail sampling, expensive transforms, backend-specific routing, and policy decisions belong in the gateway layer.
 
+The collector runs with `hostNetwork: true` and `dnsPolicy: ClusterFirstWithHostNet`. Both are required together:
+
+- `hostNetwork` binds the OTLP receivers on each node's own IP so workloads can reach their node-local agent via `status.hostIP`.
+- `dnsPolicy` is set explicitly because the agent still resolves `otel-gateway-regional.monitoring.svc.cluster.local` through CoreDNS while sharing the host network namespace.
+
+This matters because `k8sattributes` uses `filter.node_from_env_var: K8S_NODE_NAME`, which caches only the pods on its own node. Telemetry that arrives from a pod on a *different* node — which is exactly what happens when workloads send to the collector's ClusterIP Service — gets no `k8s.*` attributes at all. The failure is silent and partial: on an N-node cluster roughly (N-1)/N of telemetry loses its enrichment.
+
+If you ever remove `node_from_env_var`, the Service target becomes safe again, at the cost of every collector watching every pod.
+
 ### Application Instrumentation
 
 Python uses OTel Operator auto-instrumentation through pod annotations such as:
 
 ```yaml
-instrumentation.opentelemetry.io/inject-python: "default-instrumentation"
+instrumentation.opentelemetry.io/inject-python: "python-instrumentation"
 ```
+
+The value must match the name of an `Instrumentation` CR in the same namespace —
+here `python-instrumentation` in `default`.
+
+Two things about the operator that are easy to get wrong:
+
+- The Service it creates for a collector is named `<collector-name>-collector`.
+  A DaemonSet declared as `otel-collector-agent` is reachable at
+  `otel-collector-agent-collector`, never at the bare name.
+- The operator does not overwrite an environment variable a container already
+  declares. `OTEL_EXPORTER_OTLP_ENDPOINT` set on the Deployment wins over the
+  `exporter.endpoint` in the `Instrumentation` CR, so the two must agree or the
+  CR value is dead config.
+
+Workloads target their **node-local** agent through the Downward API
+(`status.hostIP`), not the collector's ClusterIP Service — see the k8sattributes
+note below.
 
 Go uses programmatic SDK setup in `apps-workload-cluster-1/apps-src/golang-app/telemetry.go`.
 
@@ -119,6 +160,8 @@ tenant.id
 
 These attributes power routing, dashboards, alert labels, ownership, cost allocation, and tenant-aware policy.
 
+For Go, `OTEL_RESOURCE_ATTRIBUTES` only takes effect if the resource is built with `resource.WithFromEnv()`. `resource.New` applies exactly the detectors it is passed, so a bare `resource.New(ctx, resource.WithAttributes(...))` silently discards everything set through the environment and the attributes above never reach the backend. Auto-instrumented languages read the variable for free.
+
 ### Observability Gateway
 
 `observability-platform/k8s-manifests/otel-collector-gateway.yaml` is the central gateway.
@@ -136,7 +179,7 @@ Important: if a processor is defined, verify it is also wired into the relevant 
 
 ### Routing and Multitenancy
 
-`observability-platform/routing-and-multitenancy/otel-gateway-multitenant.yaml` demonstrates tenant-aware routing.
+`observability-platform/02-gateway-configuration/otel-gateway-multitenant.yaml` demonstrates tenant-aware routing.
 
 The pattern is:
 
@@ -154,7 +197,7 @@ When extending this, keep app-team inputs simple. App repos should declare servi
 
 ### Telemetry Budgeting
 
-`observability-platform/telemetry-budgeting/otel-gateway-tail-sampling.yaml` shows gateway-level cost control.
+`observability-platform/02-gateway-configuration/otel-gateway-tail-sampling.yaml` shows gateway-level cost control.
 
 Use tail sampling to:
 
@@ -167,9 +210,9 @@ At enterprise scale, consider an ingestion gateway plus Kafka/MSK plus processin
 
 ### Dashboards and Alerts
 
-`observability-platform/golden-signals/` contains baseline Grafana dashboards for service golden signals.
+`observability-platform/03-dashboards-and-alerts/golden-signals/` contains baseline Grafana dashboards for service golden signals.
 
-`observability-platform/dashboard-and-alert-generators/helm-chart/` demonstrates a GitOps model where:
+`observability-platform/03-dashboards-and-alerts/helm-chart/` demonstrates a GitOps model where:
 
 - Platform owns reusable Helm templates.
 - App teams own a small values file containing service name, team, Slack channel, SLOs, and thresholds.
@@ -201,11 +244,21 @@ Default to per-region observability deployments. Avoid unnecessary cross-region 
 - Use `rg` and `rg --files` for repository searches.
 - Preserve user changes. Do not revert unrelated working-tree changes.
 - Keep OpenTelemetry collector pipeline changes explicit: receivers -> processors/connectors -> exporters.
-- When changing collector configs, verify that all referenced receivers, processors, connectors, and exporters are actually used in `service.pipelines`.
-- When changing Terraform, run `terraform fmt` on modified `.tf` files.
+- When changing collector configs, verify that all referenced receivers, processors, connectors, and exporters are actually used in `service.pipelines`. A declared-but-unwired component is inert and produces no error.
+- When changing Terraform, run `terraform fmt` on modified `.tf` files and `terraform validate` from `terraform/`.
+- When changing anything under `terraform/observability-cluster/helm-values/`, run `make helm-lint` and diff the rendered output. Helm accepts unknown value keys silently, so a wrong path yields a chart default rather than a failure.
+- When changing the Go service, build it: `cd apps-workload-cluster-1/apps-src/golang-app && go build ./...`.
 - When changing Kubernetes manifests, preserve the distinction between workload-cluster configs and observability-platform configs.
 - When adding utility workflows, expose them through the `Makefile` when appropriate.
-- Keep docs updated when changing architecture, ports, service names, cluster names, or onboarding flows.
+- Keep docs updated when changing architecture, ports, service names, cluster names, chart versions, or onboarding flows. That means `README.md`, this file, and `CLAUDE.md` if its summary is affected.
+
+### Verification targets
+
+```text
+make helm-lint    # render pinned charts locally; no cluster needed
+make k8s-status   # pods on both clusters, plus anything not Running
+make grafana-password
+```
 
 ## Terraform Provisioning Patterns
 
@@ -238,46 +291,80 @@ wait_for_jobs = true   # waits for cert-manager CRD install Job before marking d
 timeout       = 300
 ```
 
-For LGTM stack charts (loki, tempo-distributed, mimir-distributed, grafana):
+For the backend charts (loki, tempo, mimir-distributed, grafana):
 - Use `wait = true` without `atomic = true`. Atomic rollback during a debug session destroys pods and makes it harder to inspect failure.
 - Set realistic `timeout` values: loki=600, tempo=600, mimir=900, grafana=300.
-- Pin `version` on cert-manager (currently `v1.14.5`) for repeatability.
 
-### LGTM Distributed Charts — Resource Efficiency
+### Pin every chart version — no exceptions
 
-The LGTM components use the individual distributed Helm charts (not the all-in-one) for production-grade topology. Each chart is configured for single-replica / monolithic mode to fit a demo cluster.
+Chart versions are collected in the `local.chart_versions` map at the top of each `helm-charts.tf`. An unpinned `helm_release` re-resolves to whatever is newest on **every** apply, so a repo that has not changed can still produce a different cluster. This is not hypothetical here: `grafana/loki` added multi-GB memcached tiers and `mimir-distributed` moved to a Kafka-backed ingest path between two applies of an unpinned config, which took the stack from working to unschedulable.
 
-**Loki** — `deploymentMode=SingleBinary` mode:
-```hcl
-set { name = "deploymentMode",       value = "SingleBinary" }
-set { name = "singleBinary.replicas", value = "1" }
-set { name = "read.replicas",         value = "0" }
-set { name = "write.replicas",        value = "0" }
-set { name = "backend.replicas",      value = "0" }
-set { name = "loki.commonConfig.replication_factor", value = "1" }
+When bumping a version, re-render before applying:
+
+```bash
+make helm-lint
 ```
 
-**Mimir-distributed** — Two hidden resource killers to disable:
-```hcl
-# Zone-aware replication: default creates 3× pods per component (one per zone).
-# MUST disable for a single-AZ or resource-constrained demo cluster.
-set { name = "ingester.zoneAwareReplication.enabled",     value = "false" }
-set { name = "store_gateway.zoneAwareReplication.enabled", value = "false" }
-# Without this, Mimir requires 3 ingesters for quorum and rejects all writes.
-set { name = "mimir.structuredConfig.ingester.ring.replication_factor", value = "1" }
+Helm ignores unknown value keys **silently**. A renamed path does not fail the install; it falls back to the chart default. Rendering and diffing is the only reliable check.
+
+### Backend chart values
+
+Values live in `terraform/observability-cluster/helm-values/*.yaml.tftpl`, not in `set` blocks. Each file carries the reasoning inline; the traps worth knowing before editing:
+
+**Loki** (`grafana/loki`, SingleBinary) — the chart's production defaults are far too large for a demo node. `chunksCache` requests 9830Mi and `resultsCache` 1229Mi; neither can be scheduled on a t3-class node, so the release hangs on `wait` until timeout. `lokiCanary` and the nginx `gateway` are also on by default. All four are disabled, which makes the query/push endpoint `loki:3100` rather than `loki-gateway`.
+
+Set `limits_config.allow_structured_metadata: true` — Loki 3.x rejects every OTLP push without it.
+
+**Mimir** (`mimir-distributed`) — three settings that must move together:
+
+```yaml
+kafka:
+  enabled: false          # chart default true: a 1-CPU/1Gi Kafka StatefulSet
+mimir:
+  structuredConfig:
+    ingest_storage:
+      enabled: false      # hardcoded true in the chart's base config
+    ingester:
+      push_grpc_method_enabled: true   # hardcoded false — writes arrive via Kafka
+      ring:
+        replication_factor: 1          # otherwise 3 ingesters are needed for quorum
 ```
 
-**Tempo-distributed** — disable metricsGenerator (needs Prometheus remote-write):
-```hcl
-set { name = "metricsGenerator.enabled", value = "false" }
-```
+Disabling Kafka without re-enabling `push_grpc_method_enabled` leaves the distributor with no path to the ingester and every remote-write returns 500. Also disable `zoneAwareReplication` on `ingester` and `store_gateway` (default creates one StatefulSet per zone), plus `rollout_operator` and `overrides_exporter`.
 
-**S3 IAM** — always include `s3:GetBucketLocation` in the S3 policy. Loki single-binary calls this on startup to resolve the region and will crash-loop with a 403 without it.
+The `mimir-gateway` service injects `X-Scope-OrgID: anonymous`, so neither Grafana nor the OTel gateway needs a tenant header — as long as both talk to the gateway rather than the distributor directly.
+
+**Tempo** (`grafana/tempo`, monolithic) — every setting lives under the top-level `tempo:` key. There is no top-level `storage:` or `traces:` key, so `storage.trace.backend=s3` and `traces.otlp.grpc.enabled=true` are both accepted and both do nothing. Tempo stays on `backend: local`, writing traces to ephemeral pod storage while the S3 bucket stays empty. Use `tempo.storage.trace.*` and `tempo.receivers.*`.
+
+This chart is marked deprecated upstream. It is kept because it is the only single-pod Tempo; migrate to `grafana/tempo-distributed` when the demo needs horizontal scale.
+
+**Grafana** — the dashboard sidecar generates its own provider definition. Do not ship a ConfigMap containing a hand-written `dashboards.yaml` provider under the `grafana_dashboard` label; the sidecar drops it into the dashboard directory where Grafana fails to parse it as a dashboard.
+
+### cert-manager version tracks the Kubernetes version
+
+cert-manager v1.14 supports Kubernetes up to 1.29. Against a newer API server its webhook cannot serve, and the OTel Operator install then blocks behind a CA injection that never completes. The cluster currently runs 1.35 with cert-manager v1.21.1. Bump both together.
+
+Use `crds.enabled` — `installCRDs` is the deprecated spelling.
+
+### Collector images
+
+The OTel Operator defaults to the slim `opentelemetry-collector-k8s` distribution, which does not ship every component these configs use (`groupbyattrs` among them). A collector referencing a component its binary lacks fails to start. Both the operator default and the collector manifests are pinned to `otel/opentelemetry-collector-contrib`.
+
+The `loki` exporter is deprecated and removed from contrib — export logs with `otlphttp` to Loki's native OTLP endpoint (`http://loki...:3100/otlp`; the exporter appends `/v1/logs`).
+
+### StorageClass ordering
+
+Loki, Tempo, and Mimir all create PVCs. The `gp3` StorageClass is its own Helm release (`cluster-storage/`) that every stateful release lists in `depends_on` — with `-parallelism=20`, Terraform is otherwise free to start those releases before any StorageClass exists, leaving claims Pending until the Helm timeout.
+
+EKS ships its own default `gp2`, so two default-annotated classes exist. Every PVC in `helm-values/` names `gp3` explicitly rather than relying on the admission plugin's tie-break.
+
+**S3 IAM** — include `s3:GetBucketLocation` (Loki calls it on startup to resolve the region and 403s into CrashLoopBackOff without it) and the multipart actions `s3:AbortMultipartUpload`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts` (Mimir and Tempo upload blocks above 5MiB as multipart).
 
 ### Karpenter
 
 - **Karpenter is deployed only on the observability cluster.** The apps cluster does not need it — it runs two app containers and a DaemonSet collector that fit within a single t3.medium managed node group.
-- Karpenter chart is pinned to `1.0.6` (stable v1 release).
+- Karpenter chart is pinned to `1.0.6` (stable v1 release), `replicas = 1` for the demo.
+- The `gp3` StorageClass used to live in this chart. It was moved to `cluster-storage/` because it has to exist before the backend charts run, and Karpenter installs after them.
 - CRD API versions in `karpenter-provisioner/templates/`:
   - NodePool: `karpenter.sh/v1` (not v1beta1)
   - EC2NodeClass: `karpenter.k8s.aws/v1` (not v1beta1)
@@ -294,6 +381,25 @@ cluster_addons = {
   aws-ebs-csi-driver     = { most_recent = true }
 }
 ```
+
+### Node group sizing
+
+The observability node group is driven by the `node_group_*` variables (they were previously declared but never referenced — `eks.tf` hardcoded the values). Default is 2× `t3.large` spot.
+
+Measured request footprint of the trimmed stack, which is what the size is based on:
+
+```text
+Mimir (8 pods)   0.40 vCPU / 1728 MiB
+Loki  (1 pod)    0.10 vCPU /  256 MiB
+Tempo (1 pod)    0.10 vCPU /  256 MiB
+Grafana          0.05 vCPU /  192 MiB
+OTel gateway x2  0.20 vCPU /  512 MiB
+Karpenter        0.25 vCPU /  256 MiB
+plus cert-manager, OTel operator, LB controller, CoreDNS, EBS CSI, node agents
+                 ~1.8 vCPU / ~4.4 GiB total
+```
+
+`t3.medium` (~3.2 GiB allocatable) × 2 leaves no room for Mimir compaction spikes or a spot reclaim, and PVC-bound StatefulSets cannot be rescheduled freely. Re-derive this table with `make helm-lint` after changing any values file.
 
 ### Node Group lifecycle protection
 

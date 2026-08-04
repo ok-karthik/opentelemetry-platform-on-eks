@@ -2,26 +2,52 @@
 # ==============================================================================
 # Helm Releases — Observability Cluster
 #
-# All four LGTM components are deployed using their individual official Helm charts.
-# Loki and Tempo are run in monolithic (single-pod) mode. Mimir is run using the
-# mimir-distributed chart but scaled down to single-replica, low-resource mode.
-# This yields a total of only ~11 pods, which fits cleanly on 2x t3.medium nodes.
+# The four LGTM components are deployed from their individual official charts.
+# Loki and Tempo run monolithic (1 pod each); Mimir runs the distributed chart
+# scaled to a single replica per component. Values live in helm-values/ rather
+# than in `set` blocks so they can be linted and rendered with `helm template`
+# before an apply — see the README for the verification command.
+#
+# EVERY chart version is pinned. An unpinned `helm_release` silently upgrades
+# across chart majors on the next `terraform apply`, which is how the previously
+# working stack drifted into a broken one (Loki gained multi-GB memcached tiers
+# and Mimir gained a bundled Kafka).
 #
 # Install dependency order:
-#   cert-manager  →  otel-operator      (webhook TLS)
-#   aws-lb-controller                   (Pod Identity must exist first)
-#   loki / tempo / mimir / grafana      (S3 IAM must exist first)
-#   karpenter  →  karpenter-provisioner
+#   cert-manager      ->  otel-operator            (webhook TLS)
+#   aws-lb-controller                              (Pod Identity must exist first)
+#   cluster-storage   ->  loki / tempo / mimir     (PVCs need the gp3 class)
+#   karpenter         ->  karpenter-provisioner
 # ==============================================================================
+
+locals {
+  # Chart versions — bump deliberately, then re-render helm-values/ to confirm
+  # no value paths were renamed by the new chart.
+  chart_versions = {
+    cert_manager      = "v1.21.1"
+    otel_operator     = "0.120.0"
+    aws_lb_controller = "3.4.3"
+    loki              = "7.2.0"
+    tempo             = "1.24.4"
+    mimir             = "6.1.0"
+    grafana           = "10.5.15"
+    karpenter         = "1.0.6"
+  }
+}
 
 # ------------------------------------------------------------------------------
 # 1. cert-manager
+#
+# The version must track the cluster's Kubernetes version. cert-manager v1.14
+# only supports up to Kubernetes 1.29 — running it against this cluster's 1.35
+# API server leaves the webhook unable to serve, which in turn blocks the
+# OpenTelemetry Operator install behind a CA injection that never completes.
 # ------------------------------------------------------------------------------
 resource "helm_release" "cert_manager" {
   name             = "cert-manager"
   repository       = "https://charts.jetstack.io"
   chart            = "cert-manager"
-  version          = "v1.14.5"
+  version          = local.chart_versions.cert_manager
   namespace        = "cert-manager"
   create_namespace = true
 
@@ -31,7 +57,7 @@ resource "helm_release" "cert_manager" {
   timeout       = 600
 
   set {
-    name  = "installCRDs"
+    name  = "crds.enabled"
     value = "true"
   }
 
@@ -70,6 +96,7 @@ resource "helm_release" "otel_operator" {
   name             = "opentelemetry-operator"
   repository       = "https://open-telemetry.github.io/opentelemetry-helm-charts"
   chart            = "opentelemetry-operator"
+  version          = local.chart_versions.otel_operator
   namespace        = "opentelemetry-operator-system"
   create_namespace = true
 
@@ -77,6 +104,10 @@ resource "helm_release" "otel_operator" {
   atomic  = true
   timeout = 300
 
+  set {
+    name  = "manager.collectorImage.repository"
+    value = "otel/opentelemetry-collector-contrib"
+  }
   set {
     name  = "manager.resources.requests.cpu"
     value = "10m"
@@ -96,11 +127,12 @@ resource "helm_release" "aws_lb_controller" {
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
+  version    = local.chart_versions.aws_lb_controller
   namespace  = "kube-system"
 
   wait    = true
   atomic  = true
-  timeout = 180
+  timeout = 300
 
   set {
     name  = "clusterName"
@@ -180,13 +212,31 @@ resource "aws_eks_pod_identity_association" "aws_lb_controller" {
   role_arn        = aws_iam_role.aws_lb_controller.arn
 }
 
+# ------------------------------------------------------------------------------
+# 4. Cluster storage baseline (gp3 StorageClass)
+#    Must exist before any chart that creates a PersistentVolumeClaim.
+# ------------------------------------------------------------------------------
+resource "helm_release" "cluster_storage" {
+  name      = "cluster-storage"
+  chart     = "${path.module}/cluster-storage"
+  namespace = "kube-system"
+
+  wait    = true
+  timeout = 120
+
+  depends_on = [module.eks]
+}
+
 # ==============================================================================
-# Observatory Backends — Individual Monolithic and Downscaled Charts
+# Observability Backends
+#
+# `wait = true` without `atomic = true`: an atomic rollback tears the pods down
+# on failure, which destroys the evidence needed to diagnose why an install did
+# not converge.
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# 4. Loki (grafana/loki chart — SingleBinary mode)
-#    Deploys exactly 1 pod.
+# 5. Loki — 1 pod
 # ------------------------------------------------------------------------------
 resource "helm_release" "loki" {
   count = var.deploy_observability_stack ? 1 : 0
@@ -194,88 +244,29 @@ resource "helm_release" "loki" {
   name             = "loki"
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "loki"
+  version          = local.chart_versions.loki
   namespace        = "monitoring"
   create_namespace = true
 
   wait    = true
   timeout = 600
 
-  set {
-    name  = "deploymentMode"
-    value = "SingleBinary"
-  }
-  set {
-    name  = "singleBinary.replicas"
-    value = "1"
-  }
-  set {
-    name  = "read.replicas"
-    value = "0"
-  }
-  set {
-    name  = "write.replicas"
-    value = "0"
-  }
-  set {
-    name  = "backend.replicas"
-    value = "0"
-  }
-  set {
-    name  = "loki.auth_enabled"
-    value = "false"
-  }
-  set {
-    name  = "loki.useTestSchema"
-    value = "true"
-  }
-  set {
-    name  = "loki.commonConfig.replication_factor"
-    value = "1"
-  }
-  set {
-    name  = "loki.storage.type"
-    value = "s3"
-  }
-  set {
-    name  = "loki.storage.s3.region"
-    value = var.aws_region
-  }
-  set {
-    name  = "loki.storage.bucketNames.chunks"
-    value = aws_s3_bucket.loki_data.bucket
-  }
-  set {
-    name  = "loki.storage.bucketNames.ruler"
-    value = aws_s3_bucket.loki_data.bucket
-  }
-  set {
-    name  = "loki.storage.bucketNames.admin"
-    value = aws_s3_bucket.loki_data.bucket
-  }
-  set {
-    name  = "minio.enabled"
-    value = "false"
-  }
+  values = [
+    templatefile("${path.module}/helm-values/loki.yaml.tftpl", {
+      loki_bucket = aws_s3_bucket.loki_data.bucket
+      aws_region  = var.aws_region
+    })
+  ]
 
-  set {
-    name  = "singleBinary.resources.requests.cpu"
-    value = "50m"
-  }
-  set {
-    name  = "singleBinary.resources.requests.memory"
-    value = "128Mi"
-  }
-  set {
-    name  = "singleBinary.resources.limits.memory"
-    value = "256Mi"
-  }
-
-  depends_on = [module.eks, aws_eks_pod_identity_association.loki]
+  depends_on = [
+    module.eks,
+    helm_release.cluster_storage,
+    aws_eks_pod_identity_association.loki,
+  ]
 }
 
 # ------------------------------------------------------------------------------
-# 5. Tempo (grafana/tempo monolithic chart)
-#    Deploys exactly 1 pod.
+# 6. Tempo — 1 pod
 # ------------------------------------------------------------------------------
 resource "helm_release" "tempo" {
   count = var.deploy_observability_stack ? 1 : 0
@@ -283,63 +274,29 @@ resource "helm_release" "tempo" {
   name             = "tempo"
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "tempo"
+  version          = local.chart_versions.tempo
   namespace        = "monitoring"
   create_namespace = true
 
   wait    = true
   timeout = 600
 
-  set {
-    name  = "storage.trace.backend"
-    value = "s3"
-  }
-  set {
-    name  = "storage.trace.s3.bucket"
-    value = aws_s3_bucket.tempo_data.bucket
-  }
-  set {
-    name  = "storage.trace.s3.endpoint"
-    value = "s3.${var.aws_region}.amazonaws.com"
-  }
-  set {
-    name  = "storage.trace.s3.region"
-    value = var.aws_region
-  }
-  set {
-    name  = "tempo.metricsGenerator.enabled"
-    value = "false"
-  }
-  set {
-    name  = "tempo.resources.requests.cpu"
-    value = "50m"
-  }
-  set {
-    name  = "tempo.resources.requests.memory"
-    value = "128Mi"
-  }
-  set {
-    name  = "tempo.resources.limits.memory"
-    value = "256Mi"
-  }
-
   values = [
-    yamlencode({
-      traces = {
-        otlp = {
-          grpc = {
-            enabled = true
-          }
-        }
-      }
+    templatefile("${path.module}/helm-values/tempo.yaml.tftpl", {
+      tempo_bucket = aws_s3_bucket.tempo_data.bucket
+      aws_region   = var.aws_region
     })
   ]
 
-  depends_on = [module.eks, aws_eks_pod_identity_association.tempo]
+  depends_on = [
+    module.eks,
+    helm_release.cluster_storage,
+    aws_eks_pod_identity_association.tempo,
+  ]
 }
 
 # ------------------------------------------------------------------------------
-# 6. Mimir (grafana/mimir-distributed chart — downscaled)
-#    Deploys ~9 pods total. Alertmanager and Ruler are disabled to save resources.
+# 7. Mimir — 8 pods (one per component)
 # ------------------------------------------------------------------------------
 resource "helm_release" "mimir" {
   count = var.deploy_observability_stack ? 1 : 0
@@ -347,154 +304,31 @@ resource "helm_release" "mimir" {
   name             = "mimir"
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "mimir-distributed"
+  version          = local.chart_versions.mimir
   namespace        = "monitoring"
   create_namespace = true
 
   wait    = true
   timeout = 900
 
-  # Disable HA replication and Alertmanager/Ruler to keep it extremely light
-  set {
-    name  = "ingester.zoneAwareReplication.enabled"
-    value = "false"
-  }
-  set {
-    name  = "store_gateway.zoneAwareReplication.enabled"
-    value = "false"
-  }
-  set {
-    name  = "alertmanager.enabled"
-    value = "false"
-  }
-  set {
-    name  = "ruler.enabled"
-    value = "false"
-  }
+  values = [
+    templatefile("${path.module}/helm-values/mimir.yaml.tftpl", {
+      mimir_blocks_bucket       = aws_s3_bucket.mimir_blocks.bucket
+      mimir_ruler_bucket        = aws_s3_bucket.mimir_ruler.bucket
+      mimir_alertmanager_bucket = aws_s3_bucket.mimir_alertmanager.bucket
+      aws_region                = var.aws_region
+    })
+  ]
 
-  set {
-    name  = "ingester.replicas"
-    value = "1"
-  }
-  set {
-    name  = "distributor.replicas"
-    value = "1"
-  }
-  set {
-    name  = "querier.replicas"
-    value = "1"
-  }
-  set {
-    name  = "query_frontend.replicas"
-    value = "1"
-  }
-  set {
-    name  = "query_scheduler.replicas"
-    value = "1"
-  }
-  set {
-    name  = "store_gateway.replicas"
-    value = "1"
-  }
-  set {
-    name  = "compactor.replicas"
-    value = "1"
-  }
-
-  set {
-    name  = "mimir.structuredConfig.ingester.ring.replication_factor"
-    value = "1"
-  }
-
-  # S3 configurations
-  set {
-    name  = "mimir.structuredConfig.blocks_storage.backend"
-    value = "s3"
-  }
-  set {
-    name  = "mimir.structuredConfig.blocks_storage.s3.bucket_name"
-    value = aws_s3_bucket.mimir_blocks.bucket
-  }
-  set {
-    name  = "mimir.structuredConfig.blocks_storage.s3.endpoint"
-    value = "s3.${var.aws_region}.amazonaws.com"
-  }
-  set {
-    name  = "mimir.structuredConfig.alertmanager_storage.backend"
-    value = "s3"
-  }
-  set {
-    name  = "mimir.structuredConfig.alertmanager_storage.s3.bucket_name"
-    value = aws_s3_bucket.mimir_alertmanager.bucket
-  }
-  set {
-    name  = "mimir.structuredConfig.alertmanager_storage.s3.endpoint"
-    value = "s3.${var.aws_region}.amazonaws.com"
-  }
-  set {
-    name  = "mimir.structuredConfig.ruler_storage.backend"
-    value = "s3"
-  }
-  set {
-    name  = "mimir.structuredConfig.ruler_storage.s3.bucket_name"
-    value = aws_s3_bucket.mimir_ruler.bucket
-  }
-  set {
-    name  = "mimir.structuredConfig.ruler_storage.s3.endpoint"
-    value = "s3.${var.aws_region}.amazonaws.com"
-  }
-  set {
-    name  = "minio.enabled"
-    value = "false"
-  }
-
-  # Resource trims
-  set {
-    name  = "ingester.resources.requests.cpu"
-    value = "50m"
-  }
-  set {
-    name  = "ingester.resources.requests.memory"
-    value = "256Mi"
-  }
-  set {
-    name  = "store_gateway.resources.requests.cpu"
-    value = "25m"
-  }
-  set {
-    name  = "store_gateway.resources.requests.memory"
-    value = "128Mi"
-  }
-  set {
-    name  = "distributor.resources.requests.cpu"
-    value = "10m"
-  }
-  set {
-    name  = "distributor.resources.requests.memory"
-    value = "64Mi"
-  }
-  set {
-    name  = "querier.resources.requests.cpu"
-    value = "25m"
-  }
-  set {
-    name  = "querier.resources.requests.memory"
-    value = "128Mi"
-  }
-  set {
-    name  = "compactor.resources.requests.cpu"
-    value = "25m"
-  }
-  set {
-    name  = "compactor.resources.requests.memory"
-    value = "128Mi"
-  }
-
-  depends_on = [module.eks, aws_eks_pod_identity_association.mimir]
+  depends_on = [
+    module.eks,
+    helm_release.cluster_storage,
+    aws_eks_pod_identity_association.mimir,
+  ]
 }
 
 # ------------------------------------------------------------------------------
-# 7. Grafana (grafana/grafana chart)
-#    Deploys exactly 1 pod.
+# 8. Grafana — 1 pod
 # ------------------------------------------------------------------------------
 resource "helm_release" "grafana" {
   count = var.deploy_observability_stack ? 1 : 0
@@ -502,78 +336,25 @@ resource "helm_release" "grafana" {
   name             = "grafana"
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "grafana"
+  version          = local.chart_versions.grafana
   namespace        = "monitoring"
   create_namespace = true
 
   wait    = true
   timeout = 300
 
-  set {
-    name  = "sidecar.dashboards.enabled"
-    value = "true"
-  }
-  set {
-    name  = "sidecar.dashboards.label"
-    value = "grafana_dashboard"
-  }
-  set {
-    name  = "resources.requests.cpu"
-    value = "25m"
-  }
-  set {
-    name  = "resources.requests.memory"
-    value = "128Mi"
-  }
-
+  # templatefile (not file) so the `$${...}` escapes in the datasource
+  # definitions collapse to the literal `${...}` Grafana expects.
   values = [
-    yamlencode({
-      datasources = {
-        "datasources.yaml" = {
-          apiVersion = 1
-          datasources = [
-            {
-              name      = "Mimir (Prometheus)"
-              type      = "prometheus"
-              access    = "proxy"
-              url       = "http://mimir-gateway.monitoring.svc.cluster.local/prometheus"
-              uid       = "prometheus"
-              isDefault = true
-            },
-            {
-              name   = "Loki"
-              type   = "loki"
-              access = "proxy"
-              url    = "http://loki-gateway.monitoring.svc.cluster.local"
-              uid    = "loki"
-            },
-            {
-              name   = "Tempo"
-              type   = "tempo"
-              access = "proxy"
-              url    = "http://tempo.monitoring.svc.cluster.local:3200"
-              uid    = "tempo"
-              jsonData = {
-                tracesToLogsV2 = {
-                  datasourceUid      = "loki"
-                  spanStartTimeShift = "-1m"
-                  spanEndTimeShift   = "1m"
-                  filterByTraceID    = true
-                  filterBySpanID     = false
-                  customQuery        = true
-                  query              = "{$${__tags}} |= \"$${__trace.traceId}\""
-                  tags = [
-                    { key = "service.name", value = "service_name" }
-                  ]
-                }
-              }
-            }
-          ]
-        }
-      }
-    })
+    templatefile("${path.module}/helm-values/grafana.yaml.tftpl", {})
   ]
 
-  depends_on = [module.eks]
+  depends_on = [
+    module.eks,
+    helm_release.loki,
+    helm_release.mimir,
+    helm_release.tempo,
+  ]
 }
 
 # ==============================================================================
@@ -585,7 +366,7 @@ resource "helm_release" "karpenter" {
   chart            = "karpenter"
   namespace        = "kube-system"
   create_namespace = true
-  version          = "1.0.6"
+  version          = local.chart_versions.karpenter
 
   wait    = true
   atomic  = true
@@ -606,6 +387,10 @@ resource "helm_release" "karpenter" {
   set {
     name  = "serviceAccount.name"
     value = module.karpenter.service_account
+  }
+  set {
+    name  = "replicas"
+    value = "1"
   }
   set {
     name  = "controller.resources.requests.cpu"

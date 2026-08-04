@@ -10,7 +10,7 @@ APPS_MANIFEST_DIR = apps-workload-cluster-1/k8s-manifests
 OBS_MANIFEST_DIR = observability-platform/k8s-manifests
 AWS_ACCOUNT_ID ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
 
-.PHONY: help k8s-create k8s-create-infra k8s-create-helm k8s-destroy k8s-context k8s-deploy-all k8s-deploy-otel k8s-deploy-apps k8s-undeploy-all k8s-dashboards
+.PHONY: help k8s-create k8s-create-infra k8s-create-helm k8s-destroy k8s-context k8s-deploy-all k8s-deploy-otel k8s-deploy-apps k8s-undeploy-all k8s-dashboards grafana-password k8s-status helm-lint
 
 help: ## Show this help message
 	@echo "Usage: make [target]"
@@ -24,10 +24,15 @@ help: ## Show this help message
 	@echo ""
 	@echo "Deploying Observability (Multi-Cluster):"
 	@echo "  k8s-deploy-all       Deploy both the Otel Gateway stack and the microservices stack"
-	@echo "  k8s-deploy-otel      Apply LGTM, Gateway, and LB Service to the observability cluster"
+	@echo "  k8s-deploy-otel      Apply dashboards, Gateway, and LB Services to the observability cluster"
 	@echo "  k8s-deploy-apps      Apply DaemonSet, Instrumentation, and apps to the workload cluster"
 	@echo "  k8s-undeploy-all     Remove manifests from both clusters"
-	@echo "  k8s-dashboards       Port-forward dashboards from the observability cluster"
+	@echo ""
+	@echo "Access & Verification:"
+	@echo "  k8s-dashboards       Port-forward Grafana to http://localhost:3000"
+	@echo "  grafana-password     Print the generated Grafana admin password"
+	@echo "  k8s-status           Show pod status across both clusters"
+	@echo "  helm-lint            Render the LGTM charts locally without applying"
 
 
 # ==============================================================================
@@ -124,7 +129,10 @@ k8s-deploy-otel:
 	kubectl --context $(OTEL_CLUSTER) wait --for=condition=Available --timeout=300s deployment/opentelemetry-operator -n opentelemetry-operator-system
 	@echo "Applying Namespace in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) create namespace monitoring --dry-run=client -o yaml | kubectl --context $(OTEL_CLUSTER) apply -f -
-	@echo "Applying LGTM stack in $(OTEL_CLUSTER)..."
+	@echo "Waiting for Grafana in $(OTEL_CLUSTER)..."
+	@echo "  (Loki/Tempo/Mimir/Grafana are installed by Terraform — run 'make k8s-create-helm' if this times out)"
+	kubectl --context $(OTEL_CLUSTER) wait --for=condition=Available --timeout=600s deployment/grafana -n monitoring
+	@echo "Applying golden-signals dashboards in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/grafana-dashboards-configmap.yaml
 	@echo "Applying Ingress for Grafana in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/grafana-ingress.yaml
@@ -173,14 +181,60 @@ k8s-deploy-apps:
 	kubectl --context $(APPS_CLUSTER) apply -R -f .tmp-manifests/; \
 	rm -rf .tmp-manifests
 
+# -R is required: the workload manifests live in per-app subdirectories, and a
+# non-recursive delete silently skips everything under golang-app/ and
+# python-app/, leaving the Deployments and the ALB behind.
 k8s-undeploy-all:
-	kubectl --context $(APPS_CLUSTER) delete -f $(APPS_MANIFEST_DIR)/golang-app/app-ingress.yaml --ignore-not-found=true
-	kubectl --context $(APPS_CLUSTER) delete -f $(APPS_MANIFEST_DIR)/ --ignore-not-found=true
-	kubectl --context $(OTEL_CLUSTER) delete -f $(OBS_MANIFEST_DIR)/ --ignore-not-found=true
+	kubectl --context $(APPS_CLUSTER) delete -R -f $(APPS_MANIFEST_DIR)/ --ignore-not-found=true
+	kubectl --context $(OTEL_CLUSTER) delete -R -f $(OBS_MANIFEST_DIR)/ --ignore-not-found=true
 
 # ==============================================================================
-# Cleanup & Dashboard Access
+# Access & Verification
 # ==============================================================================
-k8s-dashboards:
+
+# The all-in-one `lgtm` chart exposed a single service on :3000. With the
+# individual charts, Grafana is its own release and its Service listens on :80.
+k8s-dashboards: ## Port-forward Grafana to http://localhost:3000
 	@echo "Forwarding Grafana UI to http://localhost:3000 (from EKS $(OTEL_CLUSTER))..."
-	@kubectl --context $(OTEL_CLUSTER) port-forward -n monitoring svc/lgtm 3000:3000
+	@echo "Username: admin    Password: run 'make grafana-password'"
+	@kubectl --context $(OTEL_CLUSTER) port-forward -n monitoring svc/grafana 3000:80
+
+grafana-password: ## Print the chart-generated Grafana admin password
+	@kubectl --context $(OTEL_CLUSTER) get secret grafana -n monitoring \
+	  -o jsonpath='{.data.admin-password}' | base64 -d; echo
+
+k8s-status: ## Show pod status on both clusters
+	@echo "=== $(OTEL_CLUSTER) / monitoring ==="
+	@kubectl --context $(OTEL_CLUSTER) get pods -n monitoring -o wide || true
+	@echo ""
+	@echo "=== $(OTEL_CLUSTER) / pending or unhealthy pods (all namespaces) ==="
+	@kubectl --context $(OTEL_CLUSTER) get pods -A \
+	  --field-selector=status.phase!=Running,status.phase!=Succeeded || true
+	@echo ""
+	@echo "=== $(APPS_CLUSTER) ==="
+	@kubectl --context $(APPS_CLUSTER) get pods -A -o wide | grep -E 'monitoring|default|NAMESPACE' || true
+
+# Renders the pinned charts with the repo's values so value-path mistakes are
+# caught before a 15-minute apply. Helm ignores unknown keys silently, so a
+# typo'd path produces a chart default rather than an error — diff the output
+# when changing anything under terraform/observability-cluster/helm-values/.
+helm-lint: ## Render LGTM charts locally (no cluster required)
+	@helm repo add grafana https://grafana.github.io/helm-charts >/dev/null 2>&1 || true
+	@helm repo update grafana >/dev/null 2>&1 || true
+	@mkdir -p .helm-render
+	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
+	  terraform/observability-cluster/helm-values/loki.yaml.tftpl > .helm-render/loki.yaml
+	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
+	  terraform/observability-cluster/helm-values/tempo.yaml.tftpl > .helm-render/tempo.yaml
+	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
+	  terraform/observability-cluster/helm-values/mimir.yaml.tftpl > .helm-render/mimir.yaml
+	@echo "--- loki 7.2.0 ---"
+	@helm template loki grafana/loki --version 7.2.0 -n monitoring \
+	  -f .helm-render/loki.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'Deployment|StatefulSet|DaemonSet'
+	@echo "--- tempo 1.24.4 ---"
+	@helm template tempo grafana/tempo --version 1.24.4 -n monitoring \
+	  -f .helm-render/tempo.yaml 2>/dev/null | grep -A3 'trace:' | head -8
+	@echo "--- mimir-distributed 6.1.0 ---"
+	@helm template mimir grafana/mimir-distributed --version 6.1.0 -n monitoring \
+	  -f .helm-render/mimir.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'Deployment|StatefulSet'
+	@rm -rf .helm-render

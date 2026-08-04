@@ -1,0 +1,146 @@
+# ==============================================================================
+# Mimir — mimir-distributed, scaled down to one replica per component
+#
+# Two chart-6.x defaults have to be switched off explicitly, and they are the
+# difference between "works" and "silently drops every write":
+#
+# 1. `kafka.enabled: true` — Mimir 3.x defaults to the ingest-storage
+#    architecture and ships a bundled Kafka StatefulSet requesting a full CPU
+#    and 1Gi of memory.
+#
+# 2. `ingest_storage.enabled: true` is hardcoded in the chart's base config, and
+#    it also hardcodes `ingester.push_grpc_method_enabled: false` — because in
+#    that architecture writes are expected to arrive via Kafka. Turning Kafka
+#    off WITHOUT re-enabling the gRPC push method leaves the distributor with no
+#    way to reach the ingester, and every remote-write returns 500.
+#
+# Both overrides are applied under `mimir.structuredConfig` below.
+#
+# Write endpoint: http://mimir-gateway.monitoring.svc.cluster.local/api/v1/push
+# Query endpoint: http://mimir-gateway.monitoring.svc.cluster.local/prometheus
+#
+# The gateway injects `X-Scope-OrgID: anonymous`, so neither Grafana nor the
+# OTel gateway needs to set a tenant header.
+# ==============================================================================
+
+# --- Components we do not run in the demo -------------------------------------
+kafka:
+  enabled: false
+rollout_operator:
+  enabled: false
+alertmanager:
+  enabled: false
+ruler:
+  enabled: false
+overrides_exporter:
+  enabled: false
+minio:
+  enabled: false
+
+# Memcached tiers — each would add a pod with a multi-GB memory request.
+chunks-cache:
+  enabled: false
+index-cache:
+  enabled: false
+metadata-cache:
+  enabled: false
+results-cache:
+  enabled: false
+
+mimir:
+  structuredConfig:
+    # See note (2) above — these two must move together.
+    ingest_storage:
+      enabled: false
+    ingester:
+      push_grpc_method_enabled: true
+      ring:
+        replication_factor: 1
+
+    blocks_storage:
+      backend: s3
+      s3:
+        bucket_name: ${mimir_blocks_bucket}
+        endpoint: s3.${aws_region}.amazonaws.com
+        region: ${aws_region}
+
+    ruler_storage:
+      backend: s3
+      s3:
+        bucket_name: ${mimir_ruler_bucket}
+        endpoint: s3.${aws_region}.amazonaws.com
+        region: ${aws_region}
+
+    alertmanager_storage:
+      backend: s3
+      s3:
+        bucket_name: ${mimir_alertmanager_bucket}
+        endpoint: s3.${aws_region}.amazonaws.com
+        region: ${aws_region}
+
+    limits:
+      compactor_blocks_retention_period: 168h
+
+# --- Single-replica topology --------------------------------------------------
+distributor:
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 192Mi }
+    limits: { memory: 384Mi }
+
+ingester:
+  replicas: 1
+  # Zone-aware replication creates one StatefulSet per zone (3x the pods) and
+  # requires 3 ingesters for write quorum.
+  zoneAwareReplication:
+    enabled: false
+  persistentVolume:
+    size: 10Gi
+    storageClass: gp3
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { memory: 1Gi }
+
+querier:
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 192Mi }
+    limits: { memory: 384Mi }
+
+query_frontend:
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+
+query_scheduler:
+  replicas: 1
+  resources:
+    requests: { cpu: 25m, memory: 128Mi }
+    limits: { memory: 256Mi }
+
+store_gateway:
+  replicas: 1
+  zoneAwareReplication:
+    enabled: false
+  persistentVolume:
+    size: 10Gi
+    storageClass: gp3
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+compactor:
+  replicas: 1
+  persistentVolume:
+    size: 10Gi
+    storageClass: gp3
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+gateway:
+  replicas: 1
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { memory: 128Mi }

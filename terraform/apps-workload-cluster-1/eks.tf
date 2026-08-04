@@ -58,13 +58,18 @@ module "eks" {
   cluster_endpoint_public_access = true
 
   # 3. Configure the Managed Node Group (Spot Instances)
+  #
+  #    This cluster only runs the two demo services and the DaemonSet collector,
+  #    so t3.medium is sufficient. Driven by variables rather than hardcoded so
+  #    the node_group_* inputs are actually reachable.
   eks_managed_node_groups = {
     general = {
-      min_size       = 1
-      max_size       = 4
-      desired_size   = 2
-      instance_types = ["t3.medium"]
-      capacity_type  = "SPOT"
+      name           = var.node_group_name
+      min_size       = var.node_group_min_size
+      max_size       = var.node_group_max_size
+      desired_size   = var.node_group_desired_capacity
+      instance_types = var.node_group_instance_types
+      capacity_type  = var.node_group_capacity_type
     }
   }
 
@@ -72,9 +77,13 @@ module "eks" {
   create_kms_key            = false
   cluster_encryption_config = {}
 
-  # 4. Install EKS Add-ons (Pod Identity Agent) natively
+  # 4. Install EKS Add-ons natively.
+  #    coredns is listed explicitly for the same reason as on the observability
+  #    cluster: in-cluster DNS must be healthy before the cert-manager and OTel
+  #    Operator webhook admission calls fire.
   cluster_addons = {
-    eks-pod-identity-agent = {}
+    coredns                = { most_recent = true }
+    eks-pod-identity-agent = { most_recent = true }
   }
 
   # 5. Enable access entries (Modern EKS auth)

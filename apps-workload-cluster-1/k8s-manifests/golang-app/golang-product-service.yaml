@@ -36,17 +36,21 @@ spec:
             - name: OTEL_SEMCONV_STABILITY_OPT_IN
               value: "http"
             - name: OTEL_RESOURCE_ATTRIBUTES
-              value: "service.version=1.0.0,deployment.environment=dev"
-            - name: PYROSCOPE_SERVER_ADDRESS
-              value: "http://pyroscope.monitoring.svc.cluster.local:4040"
+              value: "service.namespace=product,service.version=1.0.0,deployment.environment=dev,team=product"
 
-            # ==================== EKS Downward API Trick ====================
-            # Since Go uses programmatic SDK setup, it needs to know the local
-            # DaemonSet agent's endpoint. We use the Downward API to fetch the
-            # Node IP (HOST_IP) where this pod is running, and direct our OTLP
-            # SDK exporter to talk to that Node IP on port 4317.
+            # ==================== EKS Downward API ====================
+            # The collector runs as a DaemonSet and enriches telemetry with
+            # k8sattributes scoped to its own node (node_from_env_var). Talking
+            # to the ClusterIP Service would round-robin across nodes and drop
+            # that enrichment whenever the request landed on a different node's
+            # collector, so the pod resolves its own node's IP instead and the
+            # SDK exports to the agent running there.
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: "otel-collector-agent-collector.monitoring.svc.cluster.local:4317"
+              value: "http://$(HOST_IP):4317"
 ---
 apiVersion: v1
 kind: Service
