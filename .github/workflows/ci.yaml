@@ -18,7 +18,6 @@ env:
   GOLANG_APP_REPO: golang-product-service
   PYTHON_APP_REPO: python-product-info-service
   APPS_SRC_DIR: apps-workload-cluster-1/apps-src
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
 
 jobs:
   build-and-push:
@@ -27,16 +26,16 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # ==============================================================================
       # Option A: Authenticate using AWS Secrets (Access Key ID & Secret Access Key)
       # ==============================================================================
       # - name: Configure AWS Credentials (IAM User Secrets)
-      #   uses: aws-actions/configure-aws-credentials@v4
+      #   uses: aws-actions/configure-aws-credentials@v6
       #   with:
       #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
       #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -46,7 +45,7 @@ jobs:
       # Option B: Authenticate using OIDC Role Federation (Recommended for Production)
       # ==============================================================================
       - name: Configure AWS Credentials (OIDC Role)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
@@ -59,7 +58,7 @@ jobs:
       # Build & Push Go Product Service
       # ==============================================================================
       - name: Build and Push Go Product Service
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./${{ env.APPS_SRC_DIR }}/golang-app
           file: ./${{ env.APPS_SRC_DIR }}/golang-app/Dockerfile
@@ -74,7 +73,7 @@ jobs:
       # Build & Push Python Product Info Service
       # ==============================================================================
       - name: Build and Push Python Product Info Service
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./${{ env.APPS_SRC_DIR }}/python-app
           file: ./${{ env.APPS_SRC_DIR }}/python-app/Dockerfile
