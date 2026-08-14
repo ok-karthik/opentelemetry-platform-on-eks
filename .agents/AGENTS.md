@@ -30,63 +30,31 @@ For platform-engineering discussions, use this ownership model:
 
 ## Current Repository Structure
 
-```text
-apps-workload-cluster-1/
-  apps-src/
-    golang-app/                 # Go demo service with programmatic OTel SDK setup
-    python-app/                 # Python demo service using OTel auto-instrumentation
-  k8s-manifests/
-    otel-collector-daemonset.yaml
-    golang-app/
-      golang-product-service.yaml
-      app-ingress.yaml
-    python-app/
-      python-product-info-service.yaml
-      otel-instrumentation-python.yaml   # OTel Operator Instrumentation CR
+The annotated directory tree lives in **[../README.md](../README.md)**, under
+"Where things live" in the *What actually gets deployed* section — a table
+mapping concept to path, plus a collapsed full tree that marks each directory
+`DEPLOYED` or `TEMPLATE`. That tree is canonical. Do not restate it here; a
+second copy drifts, and this file is the one agents read most.
 
-observability-platform/
-  README.md
-  k8s-manifests/
-    grafana-ingress.yaml
-    grafana-dashboards-configmap.yaml
-    otel-collector-gateway.yaml
-    svc-nlb-otel-gateway.yaml
-  01-app-onboarding/
-    README.md
-    service-onboarding-contract.md
-    values-examples/                     # Per-language app-team values files
-    instrumentation-manifests/           # Per-language Instrumentation CRs
-  02-gateway-configuration/
-    README.md
-    otel-gateway-multitenant.yaml        # Tenant/team routing
-    otel-gateway-tail-sampling.yaml      # Telemetry budgeting
-  03-dashboards-and-alerts/
-    README.md
-    golden-signals/                      # Baseline dashboard JSON
-    helm-chart/                          # Dashboard + alert generator
-  04-cluster-gitops-baseline/
-    README.md
-    gitops-app-of-apps/
-    workload-cluster-baseline/
+What the tree does not say, and this file is responsible for:
 
-terraform/
-  apps-workload-cluster-1/       # Workload EKS cluster, ECR, networking, Helm installs
-  observability-cluster/         # Dedicated observability EKS cluster and networking
-    helm-values/                 # Loki/Tempo/Mimir/Grafana values (.tftpl)
-    cluster-storage/             # gp3 StorageClass chart
-    karpenter-provisioner/       # NodePool + EC2NodeClass chart
-  main.tf
-
-architecture-decisions-and-tradeoffs.md
-CLAUDE.md                        # Entry point for Claude Code; points here
-Makefile
-README.md
-```
+- `apps-workload-cluster-1/`, `observability-platform/`, and `terraform/` are
+  one repository today, but reason about them as three — app-team-owned,
+  platform-owned, and infrastructure. The ownership model above is what decides
+  where a change belongs.
+- The `01-`…`04-` prefixes under `observability-platform/` are the onboarding
+  order (contract, then gateway policy, then dashboards, then GitOps), not
+  arbitrary numbering.
+- Several of those directories are templates that nothing installs. Check the
+  README's `DEPLOYED`/`TEMPLATE` markers before describing anything there as
+  running.
 
 `CLAUDE.md` at the repository root is a short pointer to this file plus the
-day-to-day commands. This file stays the source of truth — when conventions
-change, update here first and only adjust `CLAUDE.md` if the summary is now
-wrong.
+day-to-day commands. This file stays the source of truth for conventions,
+architecture reasoning, and the chart traps below — when those change, update
+here first and only adjust `CLAUDE.md` if the summary is now wrong. For
+repository *structure*, the README is the source of truth and this file defers
+to it.
 
 Ignore `.terraform/` generated module/provider content unless explicitly asked to inspect local Terraform state or generated modules.
 
@@ -251,6 +219,7 @@ Default to per-region observability deployments. Avoid unnecessary cross-region 
 - When changing Kubernetes manifests, preserve the distinction between workload-cluster configs and observability-platform configs.
 - When adding utility workflows, expose them through the `Makefile` when appropriate.
 - Keep docs updated when changing architecture, ports, service names, cluster names, chart versions, or onboarding flows. That means `README.md`, this file, and `CLAUDE.md` if its summary is affected.
+- When adding, removing, or renaming a directory, update the tree in `README.md` only — including its `DEPLOYED`/`TEMPLATE` marker. Do not add a second tree here or to `CLAUDE.md`.
 
 ### Verification targets
 
