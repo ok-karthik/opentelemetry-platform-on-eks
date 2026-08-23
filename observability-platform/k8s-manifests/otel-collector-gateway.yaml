@@ -1,27 +1,26 @@
+# Tier 1: Router
 apiVersion: opentelemetry.io/v1beta1
 kind: OpenTelemetryCollector
 metadata:
-  name: otel-collector-gateway
+  name: otel-collector-tier1-router
   namespace: monitoring
 spec:
-  # Deployment mode enables replica scaling and HPA (Horizontal Pod Autoscaler)
   mode: deployment
   autoscaler:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilization: 80
   image: otel/opentelemetry-collector-contrib:0.156.0
-
+  
   # Without an explicit request the operator creates the pods with none, so the
   # scheduler treats two gateway replicas as free and the HPA has no CPU
   # baseline to compute targetCPUUtilization against.
   resources:
     requests:
       cpu: 100m
-      memory: 256Mi
+      memory: 128Mi
     limits:
-      memory: 512Mi
-
+      memory: 256Mi
   config:
     receivers:
       otlp:
@@ -30,13 +29,77 @@ spec:
             endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
-      
-      # Internal receiver for load-balanced traces
+    processors:
+      # Memory Limiter protects the router from crashing
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+    exporters:
+      # Trace affinity load balancer - hashes by traceID
+      loadbalancing/traces:
+        routing_key: traceID
+        protocol:
+          otlp:
+            tls:
+              insecure: true
+        resolver:
+          k8s:
+            service: otel-collector-tier2-processor-collector
+            ports:
+              - 4319
+      # Metrics and Logs load balancer - hashes by service name
+      loadbalancing/metrics-logs:
+        routing_key: service
+        protocol:
+          otlp:
+            tls:
+              insecure: true
+        resolver:
+          k8s:
+            service: otel-collector-tier2-processor-collector
+            ports:
+              - 4319
+    service:
+      pipelines:
+        # Pipeline 1: Receives traces from NLB and routes them by TraceID to ensure affinity
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter]
+          exporters: [loadbalancing/traces]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter]
+          exporters: [loadbalancing/metrics-logs]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter]
+          exporters: [loadbalancing/metrics-logs]
+---
+# Tier 2: Processor
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-collector-tier2-processor
+  namespace: monitoring
+spec:
+  # StatefulSet mode provides a stable headless service and sticky identity for the router
+  mode: statefulset
+  replicas: 3
+  image: otel/opentelemetry-collector-contrib:0.156.0
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  config:
+    receivers:
+      # Internal receiver for load-balanced traffic from Tier 1
       otlp/internal:
         protocols:
           grpc:
             endpoint: 0.0.0.0:4319
-
     processors:
       # Filter processor to discard noisy low-level HTTP transport spans
       filter/drop_noisy_asgi:
@@ -106,19 +169,6 @@ spec:
               - delete_key(attributes, "http.target")
 
     exporters:
-      # Trace affinity load balancer
-      loadbalancing:
-        routing_key: traceID
-        protocol:
-          otlp:
-            tls:
-              insecure: true
-        resolver:
-          k8s:
-            service: otel-collector-gateway-collector
-            ports:
-              - 4319
-
       # Pushes metrics to Mimir via Prometheus remote write HTTP API
       prometheusremotewrite:
         endpoint: "http://mimir-gateway.monitoring.svc.cluster.local/api/v1/push"
@@ -130,6 +180,13 @@ spec:
         endpoint: "tempo.monitoring.svc.cluster.local:4317"
         tls:
           insecure: true
+
+      # MOCK: Outputs logs to a Kafka topic for zero-data-loss buffering before Logstash/Elasticsearch
+      kafka/logs:
+        brokers:
+          - "kafka.monitoring.svc.cluster.local:9092"
+        protocol_version: "2.0.0"
+        topic: "otel-logs-buffer"
 
       # Pushes logs to Loki over its native OTLP endpoint.
       #
@@ -155,12 +212,6 @@ spec:
                     host: 0.0.0.0
                     port: 8889
       pipelines:
-        # Pipeline 1: Receives traces from NLB and routes them by TraceID to ensure affinity
-        traces/routing:
-          receivers: [otlp]
-          processors: [memory_limiter]
-          exporters: [loadbalancing]
-
         # Pipeline 2: Receives trace-affinity routed spans and performs tail sampling
         traces:
           receivers: [otlp/internal]
@@ -175,13 +226,13 @@ spec:
             ]
           exporters: [otlp/tempo]
         metrics:
-          receivers: [otlp]
+          receivers: [otlp/internal]
           processors: [memory_limiter, batch]
           exporters: [prometheusremotewrite]
         logs:
-          receivers: [otlp]
+          receivers: [otlp/internal]
           processors: [memory_limiter, batch]
-          exporters: [otlphttp/loki]
+          exporters: [kafka/logs, otlphttp/loki]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -195,13 +246,25 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: otel-collector-gateway-binding
+  name: otel-collector-tier1-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: otel-collector-gateway-role
 subjects:
   - kind: ServiceAccount
-    name: otel-collector-gateway-collector
+    name: otel-collector-tier1-router-collector
     namespace: monitoring
-
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-tier2-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector-gateway-role
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector-tier2-processor-collector
+    namespace: monitoring

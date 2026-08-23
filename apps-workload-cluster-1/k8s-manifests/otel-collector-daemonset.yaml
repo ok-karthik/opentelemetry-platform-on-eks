@@ -41,6 +41,9 @@ spec:
       memory: 192Mi
     limits:
       memory: 384Mi
+  # eBPF (OBI) requires elevated privileges to attach probes
+  securityContext:
+    privileged: true
   env:
     - name: K8S_NODE_NAME
       valueFrom:
@@ -50,10 +53,22 @@ spec:
     - name: varlogpods
       mountPath: /var/log/pods
       readOnly: true
+    # eBPF (OBI) requires access to kernel debug and cgroups
+    - name: sys-fs-bpf
+      mountPath: /sys/fs/bpf
+    - name: sys-fs-cgroup
+      mountPath: /sys/fs/cgroup
+      readOnly: true
   volumes:
     - name: varlogpods
       hostPath:
         path: /var/log/pods
+    - name: sys-fs-bpf
+      hostPath:
+        path: /sys/fs/bpf
+    - name: sys-fs-cgroup
+      hostPath:
+        path: /sys/fs/cgroup
   config:
     receivers:
       otlp:
@@ -62,6 +77,12 @@ spec:
             endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
+      
+      # [ENTERPRISE PATTERN: OpenTelemetry eBPF (OBI)]
+      # Natively captures RED metrics and distributed traces directly from the kernel.
+      # Requires the Collector to run with elevated privileges (securityContext.privileged: true).
+      obi: {}
+
       filelog:
         include:
           - /var/log/pods/*/*/*.log
@@ -140,11 +161,11 @@ spec:
         # team=product attribute it adds is what downstream routing, dashboards
         # and cost allocation key off.
         traces:
-          receivers: [otlp]
+          receivers: [otlp, obi]
           processors: [k8sattributes, resource, batch]
           exporters: [otlp]
         metrics:
-          receivers: [otlp, kubeletstats]
+          receivers: [otlp, kubeletstats, obi]
           processors: [k8sattributes, resource, batch]
           exporters: [otlp]
         logs:

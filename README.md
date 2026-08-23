@@ -8,11 +8,67 @@ Everything below is deployed by the code in this repository. Where something is 
 
 ---
 
+## Enterprise Architecture Patterns
+
+This platform has been upgraded to implement enterprise-grade observability patterns:
+
+1. **eBPF & Exemplars (Zero-Code Instrumentation):** OTel agents (DaemonSets) are configured with OBI (OpenTelemetry eBPF) to natively capture RED (Rate, Errors, Duration) metrics from the kernel without developer intervention. Metrics include Exemplars, intrinsically linking metric spikes directly to trace IDs.
+2. **Two-Tier Gateway (Consistent Hashing):** The central OTel Gateway is split into two tiers:
+   - **Tier 1 (Router):** A Deployment that hashes trace traffic by `traceID` and routes it.
+   - **Tier 2 (Processor):** A StatefulSet that receives the hash-aligned traces. This guarantees every span for a trace lands on the exact same replica, enabling accurate **tail-based sampling**.
+3. **Kafka Buffer & ELK Analytics:**
+   - **Why ELK?** Elasticsearch provides unparalleled full-text search and complex query capabilities, while Logstash provides robust Grok parsing for legacy log formats.
+   - **Why Kafka?** Kafka acts as a shock absorber. During massive traffic spikes or Elasticsearch rollover failures, direct ingestion leads to dropped logs. Kafka holds the data securely until Logstash can process it. 
+   - **Cloud Services:** In production, Kafka is provided via **Amazon MSK** and ELK via **Amazon OpenSearch Serverless** for zero-ops scale. A local Kafka stub is deployed in the cluster for validation.
+
 ## Architecture
 
-![AWS Architecture Diagram](.github/assets/aws_architecture.png)
+```mermaid
+flowchart TD
+    subgraph "Workload Cluster (App Team)"
+        App1[App Pods]
+        App2[App Pods]
+        Agent[OTel Agent DaemonSet\n(eBPF Auto-Instrumentation)]
+        
+        App1 -->|Zero-code RED metrics & Traces| Agent
+        App2 -->|Zero-code RED metrics & Traces| Agent
+    end
 
-Two EKS clusters (Kubernetes 1.35, `us-east-1`) in peered VPCs — `10.0.0.0/16` for workloads, `10.1.0.0/16` for observability. Lightweight collectors run next to workloads; a central gateway fleet on the observability cluster owns policy; Loki, Tempo, and Mimir persist to S3 behind Grafana.
+    subgraph "Observability Cluster (Platform Team)"
+        NLB[Internal Network Load Balancer]
+        
+        subgraph "Tier 1: Router (Deployment)"
+            Router[OTel Gateway Tier 1\n(Routing & Hash by traceID)]
+        end
+
+        subgraph "Tier 2: Processor (StatefulSet)"
+            Processor[OTel Gateway Tier 2\n(Tail Sampling & processing)]
+        end
+
+        Kafka[(Amazon MSK / Kafka Stub)]
+        
+        subgraph "Log Analytics Pipeline"
+            Logstash[Logstash]
+            Elasticsearch[(Amazon OpenSearch / ES\nHot/Warm/Cold)]
+        end
+
+        subgraph "LGTM Stack"
+            Tempo[(Tempo)]
+            Mimir[(Mimir)]
+        end
+    end
+
+    Agent -->|OTLP| NLB
+    NLB --> Router
+    Router -->|Load Balanced\nby traceID| Processor
+    Processor -->|Logs| Kafka
+    Kafka --> Logstash
+    Logstash --> Elasticsearch
+    Processor -->|Traces| Tempo
+    Processor -->|Metrics| Mimir
+```
+
+Two EKS clusters (Kubernetes 1.35, `us-east-1`) in peered VPCs — `10.0.0.0/16` for workloads, `10.1.0.0/16` for observability. Lightweight collectors run next to workloads; a central two-tier gateway fleet on the observability cluster owns policy; logs are buffered by Kafka before shipping to ELK, while traces and metrics persist to LGTM backends.
 
 ## The telemetry path
 
@@ -32,7 +88,8 @@ Two EKS clusters (Kubernetes 1.35, `us-east-1`) in peered VPCs — `10.0.0.0/16`
 | Tempo | `grafana/tempo` | 1.24.4 | monolithic, 1 pod, S3 |
 | Mimir | `grafana/mimir-distributed` | 6.1.0 | 8 pods, 1 replica each, S3 |
 | Grafana | `grafana/grafana` | 10.5.15 | 1 pod, 3 datasources |
-| OTel Gateway | `otel/opentelemetry-collector-contrib` | 0.156.0 | Deployment, HPA 2–10 |
+| OTel Gateway (Tier 1 & 2) | `otel/opentelemetry-collector-contrib` | 0.156.0 | Deployment & StatefulSet |
+| Kafka Stub | `bitnami/kafka` | 3.6 | 1 pod |
 | OTel Operator | `opentelemetry-operator` | 0.120.0 | 1 pod |
 | cert-manager | `jetstack/cert-manager` | v1.21.1 | 3 pods |
 | AWS LB Controller | `eks/aws-load-balancer-controller` | 3.4.3 | ALB + NLB |
