@@ -303,6 +303,16 @@ Disabling Kafka without re-enabling `push_grpc_method_enabled` leaves the distri
 
 The `mimir-gateway` service injects `X-Scope-OrgID: anonymous`, so neither Grafana nor the OTel gateway needs a tenant header — as long as both talk to the gateway rather than the distributor directly.
 
+**Mimir ruler** (`ruler.enabled`, `ruler_storage.backend: local`) — the ruler looks for rule groups in `<ruler_storage.local.directory>/<tenant ID>/`, and the tenant ID here is literally the string `anonymous` (same org the gateway injects). `ruler.extraVolumeMounts` mounts the `mimir-ruler-rules` ConfigMap at `.../anonymous` directly — mount it one level higher (at the bare `directory` path) and the ruler starts clean with zero rule groups loaded, no error, no alerts, nothing in the ruler's own `/ruler/rule_groups` API to indicate anything is wrong. `local` is a read-only ruler storage backend; there is no config-API path to create or delete rules against it, which is intentional here — rules are meant to live in git, not be pushed at runtime. `ruler.alertmanager_url` needs no override: the chart's own default is a `dnssrvnoa+` SRV lookup against `<fullname>-alertmanager-headless`, which resolves correctly once `alertmanager.enabled: true` creates that headless Service — setting it explicitly is redundant and one more place a hostname can drift from the fullname.
+
+**Mimir alertmanager** — `alertmanager.fallbackConfig` (a **top-level** chart value, not under `mimir.structuredConfig`) is the config every tenant runs unless something pushes a per-tenant config through the Alertmanager config API. Nothing in this repo pushes one, so `fallbackConfig` is not a fallback in practice — it is *the* config. `alertmanager_storage` (S3) is unrelated to this: it holds runtime state (silences, notification log), not the routing tree.
+
+**OpenSearch** (`opensearch-project/opensearch`) — `protocol` and `plugins.security.disabled` have to move together, same shape as the Kafka/`push_grpc_method_enabled` trap above. `protocol: https` is the chart default; disabling the security plugin also disables the TLS it terminates, and leaving `protocol` on `https` means the chart's own readiness probes hit a plaintext port expecting TLS and never pass — the release hangs until timeout, not a clean failure. OpenSearch Dashboards needs the paired `DISABLE_SECURITY_DASHBOARDS_PLUGIN=true` env var on its own side — enabling one without the other means Dashboards tries to authenticate against a security plugin the backend doesn't have, and every login fails.
+
+**Logstash → OpenSearch** — the gateway's `kafka/logs` exporter must set `encoding: otlp_json` explicitly; the kafka exporter's default is `otlp_proto` (binary), which Logstash's stock `json` codec cannot decode. Getting this wrong doesn't error anywhere — messages land in Kafka, Logstash's kafka input reads them, and `json` codec parsing just fails silently per-message, so `_index_bootstrap` succeeds, OpenSearch comes up clean, and no documents ever arrive. Check `kubectl logs -n monitoring -l app=logstash-logstash` for codec errors if OpenSearch Dashboards shows an empty index.
+
+**GoAlert** — publishes `latest` and branch-name tags to Docker Hub but stopped publishing numbered version tags there after v0.31.0 (2023), even though GitHub Releases keeps tagging real versions. Pin by digest (`goalert/goalert@sha256:...`), not by a tag that looks like a version but isn't one — `goalert/goalert:v0.34.1` does not exist on Docker Hub and will fail to pull. GoAlert's admin user and its Alertmanager integration key are both account state created interactively (`goalert add-user` CLI, then the web UI's Setup Wizard) — there is no manifest that creates either declaratively; don't try to invent one.
+
 **Tempo** (`grafana/tempo`, monolithic) — every setting lives under the top-level `tempo:` key. There is no top-level `storage:` or `traces:` key, so `storage.trace.backend=s3` and `traces.otlp.grpc.enabled=true` are both accepted and both do nothing. Tempo stays on `backend: local`, writing traces to ephemeral pod storage while the S3 bucket stays empty. Use `tempo.storage.trace.*` and `tempo.receivers.*`.
 
 This chart is marked deprecated upstream. It is kept because it is the only single-pod Tempo; migrate to `grafana/tempo-distributed` when the demo needs horizontal scale.
@@ -358,15 +368,25 @@ The observability node group is driven by the `node_group_*` variables (they wer
 Measured request footprint of the trimmed stack, which is what the size is based on:
 
 ```text
-Mimir (8 pods)   0.40 vCPU / 1728 MiB
+Mimir (10 pods)  0.46 vCPU / 1888 MiB   # incl. ruler (50m/128Mi) + alertmanager (10m/32Mi)
 Loki  (1 pod)    0.10 vCPU /  256 MiB
 Tempo (1 pod)    0.10 vCPU /  256 MiB
 Grafana          0.05 vCPU /  192 MiB
 OTel gateway x2  0.20 vCPU /  512 MiB
+Alert sink       0.01 vCPU /   32 MiB
+OpenSearch       0.10 vCPU /  768 MiB
+OpenSearch Dash  0.05 vCPU /  256 MiB
+Logstash         0.10 vCPU /  512 MiB
+GoAlert + PG     0.10 vCPU /  256 MiB   # goalert 50m/128Mi + postgres 50m/128Mi
 Karpenter        0.25 vCPU /  256 MiB
 plus cert-manager, OTel operator, LB controller, CoreDNS, EBS CSI, node agents
-                 ~1.8 vCPU / ~4.4 GiB total
+                 ~2.2 vCPU / ~6.4 GiB total
 ```
+
+The ELK path (OpenSearch/Dashboards/Logstash) and GoAlert+Postgres together add
+~0.35 vCPU / ~1.8 GiB over the LGTM-only footprint — still comfortably inside
+2× `t3.large` (~3.8 vCPU / ~14.6 GiB allocatable), no node group resize
+needed, but worth knowing before adding a fourth stateful backend on top of it.
 
 `t3.medium` (~3.2 GiB allocatable) × 2 leaves no room for Mimir compaction spikes or a spot reclaim, and PVC-bound StatefulSets cannot be rescheduled freely. Re-derive this table with `make helm-lint` after changing any values file.
 

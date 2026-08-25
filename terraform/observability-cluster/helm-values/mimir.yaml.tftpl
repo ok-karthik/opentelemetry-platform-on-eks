@@ -21,16 +21,27 @@
 #
 # The gateway injects `X-Scope-OrgID: anonymous`, so neither Grafana nor the
 # OTel gateway needs to set a tenant header.
+#
+# 3. Ruler storage is `local`, not `s3`, unlike every other Mimir component
+#    here. Mimir's `s3` ruler backend only accepts rule groups pushed through
+#    the ruler's HTTP config API (mimirtool) — there is no "drop a YAML file
+#    in S3" path — which would mean rule changes bypass `git`/`kubectl apply`
+#    entirely. `local` reads rule groups straight from a mounted ConfigMap
+#    (see `ruler.extraVolumes` below and
+#    observability-platform/k8s-manifests/mimir-ruler-rules-configmap.yaml),
+#    keeping SLO rules declarative like everything else in this repo. The
+#    trade-off: local storage is read-only, so the config API can't create or
+#    delete rules at runtime — irrelevant here since nothing calls that API.
+#    `ruler.alertmanager_url` needs no override: the chart's own default
+#    (`dnssrvnoa+http://..._http-metrics._tcp.mimir-alertmanager-headless...`)
+#    already resolves once `alertmanager.enabled: true` creates that headless
+#    Service, so the ruler finds the alertmanager below for free.
 # ==============================================================================
 
 # --- Components we do not run in the demo -------------------------------------
 kafka:
   enabled: false
 rollout_operator:
-  enabled: false
-alertmanager:
-  enabled: false
-ruler:
   enabled: false
 overrides_exporter:
   enabled: false
@@ -64,12 +75,15 @@ mimir:
         endpoint: s3.${aws_region}.amazonaws.com
         region: ${aws_region}
 
+    # See note (3) above — rule groups come from the ConfigMap mounted at
+    # ruler.extraVolumeMounts below, one file per tenant directory. The
+    # gateway's anonymous org means the tenant directory is literally
+    # "anonymous" — get that path wrong and the ruler starts clean with zero
+    # loaded rules, no error, nothing firing.
     ruler_storage:
-      backend: s3
-      s3:
-        bucket_name: ${mimir_ruler_bucket}
-        endpoint: s3.${aws_region}.amazonaws.com
-        region: ${aws_region}
+      backend: local
+      local:
+        directory: /var/mimir-ruler-rules
 
     alertmanager_storage:
       backend: s3
@@ -144,3 +158,78 @@ gateway:
   resources:
     requests: { cpu: 25m, memory: 64Mi }
     limits: { memory: 128Mi }
+
+ruler:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+  # Mounts observability-platform/k8s-manifests/mimir-ruler-rules-configmap.yaml
+  # at the local ruler_storage directory, under the anonymous tenant. Every key
+  # in that ConfigMap becomes one file — one Mimir ruler "namespace" — inside
+  # /var/mimir-ruler-rules/anonymous/.
+  extraVolumes:
+    - name: ruler-rules
+      configMap:
+        name: mimir-ruler-rules
+  extraVolumeMounts:
+    - name: ruler-rules
+      mountPath: /var/mimir-ruler-rules/anonymous
+
+alertmanager:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+  persistentVolume:
+    size: 1Gi
+    storageClass: gp3
+  # Unlike ruler_storage, alertmanager_storage is still S3 (see above) — it
+  # holds per-tenant runtime state (silences, notification log), not config.
+  # fallbackConfig below is what actually applies, because this demo never
+  # pushes a per-tenant config through Mimir's Alertmanager config API; it is
+  # the config every tenant here runs.
+  #
+  # Routes by the `severity` label the burn-rate alerts carry: `page` goes to
+  # GoAlert (observability-platform/k8s-manifests/goalert.yaml) — a real
+  # escalation policy, not a webhook echo — because a fast/medium burn-rate
+  # breach is exactly what an on-call rotation exists for. `ticket` stays on
+  # `alert-sink`, since a slow-burn SLO warning genuinely doesn't need to page
+  # anyone; it needs to be visible, which `kubectl logs -l app=alert-sink`
+  # already gives it.
+  #
+  # `<GOALERT_INTEGRATION_KEY>` is not a Terraform variable — GoAlert
+  # generates it interactively (Setup Wizard -> Generic API integration),
+  # there is no declarative way to pre-create it. See the bootstrap steps at
+  # the bottom of goalert.yaml. Until that placeholder is replaced, `page`
+  # alerts will fail to deliver (GoAlert returns 401 for an unknown token)
+  # rather than silently vanish — check GoAlert's own request log if a page
+  # doesn't show up after that step.
+  fallbackConfig: |
+    route:
+      receiver: alert-sink
+      group_by: ['alertname', 'service']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - matchers:
+            - severity="page"
+          receiver: goalert
+          group_wait: 10s
+          repeat_interval: 1h
+        - matchers:
+            - severity="ticket"
+          receiver: alert-sink
+          repeat_interval: 12h
+    receivers:
+      - name: alert-sink
+        webhook_configs:
+          - url: http://alert-sink.monitoring.svc.cluster.local:8080/webhook
+            send_resolved: true
+      - name: goalert
+        webhook_configs:
+          - url: "http://goalert.monitoring.svc.cluster.local:8081/api/v2/generic/incoming?token=<GOALERT_INTEGRATION_KEY>"
+            send_resolved: true

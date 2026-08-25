@@ -181,12 +181,26 @@ spec:
         tls:
           insecure: true
 
-      # MOCK: Outputs logs to a Kafka topic for zero-data-loss buffering before Logstash/Elasticsearch
+      # Buffers logs into Kafka before Logstash consumes them into OpenSearch —
+      # see observability-platform/k8s-manifests/goalert.yaml's sibling files
+      # (opensearch-index-bootstrap-job.yaml, and Logstash's own values under
+      # terraform/observability-cluster/helm-values/logstash.yaml.tftpl) for
+      # the consumer side. This used to be a dead-end MOCK with no consumer;
+      # it isn't anymore.
+      #
+      # `encoding: otlp_json` is not this exporter's default (that's
+      # `otlp_proto`, an OTLP protobuf binary payload). It's set explicitly
+      # because Logstash's kafka input can decode JSON with its stock `json`
+      # codec but has no OTLP protobuf decoder — leaving this on the default
+      # would mean every message lands in Kafka unreadable by anything
+      # downstream, the same "installs cleanly, fails silently" shape as
+      # every other trap this repo documents.
       kafka/logs:
         brokers:
           - "kafka.monitoring.svc.cluster.local:9092"
         protocol_version: "2.0.0"
         topic: "otel-logs-buffer"
+        encoding: otlp_json
 
       # Pushes logs to Loki over its native OTLP endpoint.
       #

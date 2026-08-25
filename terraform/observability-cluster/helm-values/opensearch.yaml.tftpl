@@ -1,0 +1,58 @@
+# ==============================================================================
+# OpenSearch — single-node, security plugin disabled
+#
+# This is the ELK ("E") half of the log-analytics pipeline described in the
+# README's Enterprise Architecture Patterns: OTel Gateway -> Kafka -> Logstash
+# -> OpenSearch, deliberately parallel to (not a replacement for) the
+# app-log-to-Loki path. It exists to give real, checkable Elasticsearch/
+# OpenSearch operational surface — index templates, ISM (Index State
+# Management, OpenSearch's name for what Elasticsearch calls ILM), shard
+# sizing — none of which Loki has an equivalent of. See
+# observability-platform/k8s-manifests/opensearch-index-bootstrap-job.yaml for
+# the index template and ISM policy this deploy is paired with.
+#
+# `singleNode: true` forces replicas to 1 and sets discovery.type: single-node
+# — a multi-node OpenSearch cluster with replicas=1 (the chart default is 3)
+# would sit stuck waiting for a quorum that a demo node group can't schedule.
+#
+# The security plugin is disabled outright (`plugins.security.disabled: true`)
+# rather than configured with a demo admin password. That drops TLS on the
+# transport and HTTP layers too, so `protocol` below has to move from the
+# chart's default `https` to `http` — leaving `protocol: https` while the
+# plugin providing HTTPS is disabled means every health check the chart
+# performs against the pod fails, and the release hangs until the readiness
+# probe times out. This is the same "transport security: not implemented"
+# trade-off the rest of this platform already makes explicitly (tls.insecure
+# everywhere) — fine for a sandbox, not for anything else.
+# ==============================================================================
+
+clusterName: "opensearch-cluster"
+nodeGroup: "master"
+
+singleNode: true
+
+config:
+  opensearch.yml: |
+    cluster.name: opensearch-cluster
+    plugins.security.disabled: true
+
+protocol: http
+
+opensearchJavaOpts: "-Xmx512M -Xms512M"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 768Mi
+  limits:
+    memory: 1Gi
+
+persistence:
+  size: 10Gi
+  storageClass: gp3
+
+extraEnvs:
+  - name: DISABLE_INSTALL_DEMO_CONFIG
+    value: "true"
+  - name: DISABLE_SECURITY_PLUGIN
+    value: "true"
