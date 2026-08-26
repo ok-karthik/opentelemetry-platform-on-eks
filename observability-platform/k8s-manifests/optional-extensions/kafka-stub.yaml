@@ -1,6 +1,21 @@
 # ==============================================================================
-# Optional: Kafka Stub for Enterprise OpenSearch/Logstash Path
-# (Commented/Disabled by default; Loki is the primary lightweight log backend)
+# Optional: Kafka Stub for Enterprise Telemetry Ingestion Buffering
+# ==============================================================================
+# DEFAULT STATUS:
+# - Disabled/Optional by default. By default, OTel Gateways stream directly to Loki/Tempo/Mimir.
+# - Enabled when deploying the optional Kafka -> Logstash -> OpenSearch log pipeline
+#   or when high-burst buffering (>25,000 events/sec) is required.
+#
+# PURPOSE & ARCHITECTURAL USE CASE:
+# - Absorbs extreme traffic spikes (5x-10x flash sales, thundering herds) without
+#   collector `memory_limiter` dropping telemetry.
+# - Decouples backend storage maintenance: provides 24-48 hours of disk-backed lag persistence.
+# - Multi-consumer fan-out: allows streaming the same telemetry simultaneously to Loki,
+#   OpenSearch SIEM, and S3 data lakes.
+#
+# HOW TO DEPLOY:
+# 1. Apply this stub: `kubectl apply -f observability-platform/k8s-manifests/optional-extensions/kafka-stub.yaml`
+# 2. Re-enable the `kafka/logs` exporter in `observability-platform/k8s-manifests/otel-collector-gateway.yaml`
 # ==============================================================================
 apiVersion: v1
 kind: Service

@@ -1,9 +1,33 @@
 # ==============================================================================
 # Optional: OpenSearch Index Bootstrap Job for Enterprise Log Analytics
-# (Disabled/Commented by default; Loki is the primary lightweight log backend)
 # ==============================================================================
-# Real index management: explicit index template and an ISM policy that rolls
-# the index over by size/age and deletes old generations matching the 7-day retention.
+# DEFAULT STATUS:
+# - Disabled by default. The primary lightweight log backend in this repo is Grafana Loki.
+# - OpenSearch, OpenSearch Dashboards, and Logstash are controlled via the Terraform flag:
+#   `deploy_opensearch_stack = false` in:
+#     1) terraform/main.tf
+#     2) terraform/observability-cluster/variables.tf
+#     3) terraform/observability-cluster/helm-charts.tf
+#
+# PURPOSE & ARCHITECTURAL USE CASE:
+# - What Loki is for: Lightweight, label-indexed log aggregation stored directly in AWS S3,
+#   optimized for sub-second trace-to-log correlation in Grafana at minimal cost (~$5/mo).
+# - What OpenSearch is for: Enterprise full-text indexing, fuzzy string searching across
+#   unstructured payloads, high-cardinality aggregations, and SIEM security log analytics.
+#
+# WHAT THIS JOB DOES:
+# 1. ISM Policy (Index State Management): Creates `otel-logs-policy` to automatically
+#    roll over indices by age (1 day) or size (5 GB) and purge indices after 7 days
+#    (matching the retention of Loki/Tempo/Mimir).
+# 2. Index Template: Pre-defines typed mappings (`@timestamp`, `service_name`, `severity`,
+#    `trace_id`, `span_id`, etc.) to prevent Elasticsearch mapping-explosion conflicts.
+# 3. Write Alias: Initializes `otel-logs-000001` backing index with alias `otel-logs-write`.
+#
+# HOW TO DEPLOY:
+# 1. Apply Terraform with `-var="deploy_opensearch_stack=true"`.
+# 2. Apply the Kafka stub: `kubectl apply -f observability-platform/k8s-manifests/optional-extensions/kafka-stub.yaml`
+# 3. Apply this job: `kubectl apply -f observability-platform/k8s-manifests/optional-extensions/opensearch-index-bootstrap-job.yaml`
+# ==============================================================================
 apiVersion: batch/v1
 kind: Job
 metadata:
