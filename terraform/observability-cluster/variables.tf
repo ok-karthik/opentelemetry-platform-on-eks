@@ -68,3 +68,10 @@ variable "deploy_observability_stack" {
   type        = bool
   default     = false
 }
+
+variable "deploy_opensearch_stack" {
+  description = "Whether to deploy the optional enterprise OpenSearch, Dashboards, and Logstash stack"
+  type        = bool
+  default     = false
+}
+

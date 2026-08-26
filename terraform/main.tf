@@ -31,6 +31,12 @@ variable "deploy_observability_stack" {
   default     = false
 }
 
+variable "deploy_opensearch_stack" {
+  description = "Whether to deploy the optional enterprise OpenSearch, Dashboards, and Logstash stack"
+  type        = bool
+  default     = false
+}
+
 # ==============================================================================
 # 2. Instantiate Monitoring (OTel/LGTM) EKS Cluster Module
 # ==============================================================================
@@ -39,6 +45,7 @@ module "observability_cluster" {
   aws_region                 = "us-east-1"
   cluster_name               = "observability-cluster"
   deploy_observability_stack = var.deploy_observability_stack
+  deploy_opensearch_stack    = var.deploy_opensearch_stack
 }
 
 # ==============================================================================

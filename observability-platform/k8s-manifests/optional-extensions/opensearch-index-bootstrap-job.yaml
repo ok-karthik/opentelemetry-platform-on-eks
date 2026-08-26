@@ -1,0 +1,99 @@
+# ==============================================================================
+# Optional: OpenSearch Index Bootstrap Job for Enterprise Log Analytics
+# (Disabled/Commented by default; Loki is the primary lightweight log backend)
+# ==============================================================================
+# Real index management: explicit index template and an ISM policy that rolls
+# the index over by size/age and deletes old generations matching the 7-day retention.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: opensearch-index-bootstrap
+  namespace: monitoring
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: curlimages/curl:8.11.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              OS="http://opensearch-cluster-master.monitoring.svc.cluster.local:9200"
+
+              echo "Waiting for OpenSearch..."
+              until curl -sf "$OS/_cluster/health"; do sleep 5; done
+
+              echo "Creating ISM policy: otel-logs-policy"
+              curl -sf -X PUT "$OS/_plugins/_ism/policies/otel-logs-policy" \
+                -H 'Content-Type: application/json' -d '{
+                  "policy": {
+                    "description": "Rollover otel-logs by size/age, delete after 7 days — matches Loki/Tempo/Mimir retention.",
+                    "default_state": "hot",
+                    "states": [
+                      {
+                        "name": "hot",
+                        "actions": [
+                          {
+                            "rollover": {
+                              "min_size": "5gb",
+                              "min_index_age": "1d"
+                            }
+                          }
+                        ],
+                        "transitions": [
+                          { "state_name": "delete", "conditions": { "min_index_age": "7d" } }
+                        ]
+                      },
+                      {
+                        "name": "delete",
+                        "actions": [ { "delete": {} } ],
+                        "transitions": []
+                      }
+                    ],
+                    "ism_template": {
+                      "index_patterns": ["otel-logs-*"],
+                      "priority": 100
+                    }
+                  }
+                }' || echo "policy already exists, continuing"
+
+              echo "Creating index template: otel-logs-template"
+              curl -sf -X PUT "$OS/_index_template/otel-logs-template" \
+                -H 'Content-Type: application/json' -d '{
+                  "index_patterns": ["otel-logs-*"],
+                  "template": {
+                    "settings": {
+                      "number_of_shards": 1,
+                      "number_of_replicas": 0,
+                      "plugins.index_state_management.rollover_alias": "otel-logs-write"
+                    },
+                    "mappings": {
+                      "dynamic": false,
+                      "properties": {
+                        "@timestamp":         { "type": "date" },
+                        "service_name":       { "type": "keyword" },
+                        "team":               { "type": "keyword" },
+                        "severity":           { "type": "keyword" },
+                        "message":            { "type": "text" },
+                        "trace_id":           { "type": "keyword" },
+                        "span_id":            { "type": "keyword" },
+                        "k8s_namespace_name": { "type": "keyword" },
+                        "k8s_pod_name":       { "type": "keyword" },
+                        "log_file_path":      { "type": "keyword" }
+                      }
+                    }
+                  },
+                  "priority": 100
+                }'
+
+              echo "Creating initial backing index + write alias: otel-logs-000001 -> otel-logs-write"
+              curl -sf -X PUT "$OS/otel-logs-000001" \
+                -H 'Content-Type: application/json' -d '{
+                  "aliases": { "otel-logs-write": { "is_write_index": true } }
+                }' || echo "initial index already exists, continuing"
+
+              echo "Done."
