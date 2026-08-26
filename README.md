@@ -319,8 +319,9 @@ observability-platform/             # platform-team-owned; the product surface
     mimir-ruler-rules-configmap.yaml #  SLO burn-rate PrometheusRule-style groups, mounted into the ruler
     alert-sink.yaml                 #   webhook echo receiver for ticket-severity alerts
     goalert.yaml                    #   on-call/escalation for page-severity alerts, + its Postgres
-    kafka-stub.yaml                 #   TEMPLATE  optional Kafka log buffer stub
-    opensearch-index-bootstrap-job.yaml #  TEMPLATE  index template + ISM policy for the ELK path
+    optional-extensions/            #   TEMPLATE  optional enterprise log buffer & OpenSearch templates
+      kafka-stub.yaml               #     in-cluster Kafka log buffer stub
+      opensearch-index-bootstrap-job.yaml # index template + ISM policy for the ELK path
   01-app-onboarding/                # TEMPLATE  contract + per-language values and CRs
   02-gateway-configuration/         # TEMPLATE  tenant routing, real sampling budget
   03-dashboards-and-alerts/
