@@ -14,7 +14,7 @@ metadata:
   name: observability-platform-apps
   namespace: argocd
 spec:
-  project: default
+  project: platform
   source:
     repoURL: https://github.com/ok-karthik/opentelemetry-platform-on-eks.git
     targetRevision: main
