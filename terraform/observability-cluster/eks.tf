@@ -117,6 +117,9 @@ module "eks" {
     aws-ebs-csi-driver = {
       most_recent = true
     }
+    metrics-server = {
+      most_recent = true
+    }
   }
 
   # 5. Enable access entries (Modern EKS auth)

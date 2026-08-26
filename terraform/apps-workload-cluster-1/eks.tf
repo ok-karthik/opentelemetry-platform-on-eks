@@ -84,6 +84,7 @@ module "eks" {
   cluster_addons = {
     coredns                = { most_recent = true }
     eks-pod-identity-agent = { most_recent = true }
+    metrics-server         = { most_recent = true }
   }
 
   # 5. Enable access entries (Modern EKS auth)
