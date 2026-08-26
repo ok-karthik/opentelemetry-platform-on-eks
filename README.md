@@ -24,7 +24,7 @@ In traditional setups where microservices send 100% of raw telemetry directly to
 | Telemetry Scale (Monthly Volume) | Traditional Commercial SaaS (e.g., Datadog) | OpenTelemetry Platform on AWS EKS (This Repo) | Net Monthly Savings | Net Annual Savings (% Saved) |
 |---|---|---|---|---|
 | **Mid Scale**<br/>*(20 Kubernetes Nodes)*<br/><br/><details><summary>📊 <b>Traffic Details</b></summary>• 10M Requests (~20M Spans)<br/>• 50 GB Logs (~30M Events)<br/>• 500 Custom Metrics</details> | **~$1,050 / month**<br/>*(~$12,600 / year)*<br/><br/><details><summary>🔍 <b>Cost Breakdown</b></summary>• Hosts/APM: ~$920<br/>• Spans & Logs Ingest: ~$105<br/>• Custom Metrics: ~$25</details> | **~$310 / month**<br/>*(~$3,720 / year)*<br/><br/><details><summary>🔍 <b>Infra Breakdown</b></summary>• 2× EKS Control Planes: ~$146<br/>• Spot EC2 Nodes (t3.large): ~$54<br/>• AWS S3 Storage: ~$5<br/>• NAT / Load Balancers: ~$105</details> | **+$740 / mo** | **+$8,880 / year**<br/>📉 **70.5% Saved**<br/>*(Bill drops from $12.6k to $3.7k)* |
-| **Enterprise Scale**<br/>*(100 Kubernetes Nodes)*<br/><br/><details><summary>📊 <b>Traffic Details</b></summary>• 100M Requests (~500M Spans)<br/>• 1 TB Logs (~500M Events)<br/>• 5,000 Custom Metrics</details> | **~$8,500 – $12,000+ / month**<br/>*(~$102,000 – $144,000+ / year)*<br/><br/><details><summary>🔍 <b>Cost Breakdown</b></summary>• Hosts/APM: ~$4,600<br/>• Spans & Logs Indexing: ~$2,500+<br/>• Custom Metrics: ~$250<br/>• Cross-AZ Egress: ~$350</details> | **~$580 – $750 / month**<br/>*(~$6,960 – $9,000 / year)*<br/><br/><details><summary>🔍 <b>Infra Breakdown</b></summary>• 2× EKS Control Planes: ~$146<br/>• Spot EC2 Fleet (m6i.large): ~$180<br/>• AWS S3 Storage (~2TB): ~$46<br/>• Compressed Egress: ~$50<br/>• Load Balancers: ~$70</details> | **+$7,920 – $11,250+ / mo** | **+$95,000 – $135,000+ / year**<br/>📉 **93.2% – 93.8% Saved**<br/>*(Bill drops from $102k+ to $7k–$9k)* |
+| **Enterprise Scale**<br/>*(100 Kubernetes Nodes)*<br/><br/><details><summary>📊 <b>Traffic Details</b></summary>• 100M Requests (~500M Spans)<br/>• 1 TB Logs (~500M Events)<br/>• 5,000 Custom Metrics</details> | **~$8,500 – $12,000+ / month**<br/>*(~$102,000 – $144,000+ / year)*<br/><br/><details><summary>🔍 <b>Cost Breakdown</b></summary>• Hosts/APM: ~$4,600<br/>• Spans & Logs Indexing: ~$2,500+<br/>• Custom Metrics: ~$250<br/>• Cross-AZ Egress: ~$350</details> | **~$780 – $980 / month**<br/>*(~$9,360 – $11,760 / year)*<br/><br/><details><summary>🔍 <b>Infra Breakdown (HA Multi-Pod + Kafka)</b></summary>• 2× EKS Control Planes: ~$146<br/>• HA EC2 Fleet (6× m6i.large Spot): ~$240<br/>• Distributed LGTM (RF=3): incl.<br/>• 3-Broker Kafka / MSK Buffer: ~$180<br/>• S3 Storage (~3TB): ~$70<br/>• Compressed Egress & NLBs: ~$144</details> | **+$7,720 – $11,020+ / mo** | **+$92,640 – $132,240+ / year**<br/>📉 **90.8% – 91.8% Saved**<br/>*(Bill drops from $102k+ to $9.3k–$11.7k)* |
 
 ---
 
@@ -48,6 +48,26 @@ Even for organizations mandated to retain commercial SaaS (Datadog/Dynatrace) fo
 
 * **Tail-Based Sampling:** Retains 100% of errors and latency spikes (>99th percentile) while sampling successful `200 OK` traces down to 5–10%.
 * **Direct Bottom-Line Impact:** Reduces downstream span ingestion and log indexing overage fees by **60% to 80%**, saving tens of thousands of dollars per year without sacrificing diagnostic visibility during incidents.
+
+---
+
+### 3. When Do You Actually Need Kafka? (Traffic Volume & Burst Criteria)
+
+A common architectural question is whether to buffer telemetry through **Apache Kafka / AWS MSK** or write directly to storage backends:
+
+```text
+Throughput / Minute:       < 1.5 Million Events/min              > 1.5M – 3.0M+ Events/min
+Throughput / Hour:         < 90 Million Events/hr                > 100M – 200M+ Events/hr
+                          ┌────────────────────────┐            ┌────────────────────────┐
+Architecture Choice:      │ Direct OTel to LGTM    │            │ OTel ──> Kafka ──> LGTM│
+                          │ (In-Memory / Retries)  │            │ (Disk-Backed Buffer)   │
+                          └────────────────────────┘            └────────────────────────┘
+```
+
+| Ingestion Mode | Recommended Traffic Threshold | Why & When to Use It | Cost Impact |
+|---|---|---|---|
+| **Direct-to-LGTM** *(Default)* | **< 25,000 events/sec**<br/>• < 1.5M events/min<br/>• < 90M events/hour | • Horizontally scaled OTel Gateways push directly to Loki/Tempo/Mimir with in-memory retry queues.<br/>• Lowest operational complexity, sub-50ms ingestion latency, and zero extra infrastructure cost. | **$0 extra cost** (runs on base cluster nodes). |
+| **Kafka / MSK Buffer** *(Enterprise)* | **> 25,000 – 50,000+ events/sec**<br/>• > 1.5M – 3.0M+ events/min<br/>• > 100M – 200M+ events/hour | Required when your system exhibits any of these 3 conditions:<br/>1. **Extreme Burst Tolerance:** Absorbs sudden 5x–10x traffic surges (flash sales, thundering herds) without collector `memory_limiter` dropping spans.<br/>2. **Backend Outage Decoupling:** Provides 24–48 hours of disk-backed lag buffer during backend maintenance, schema compaction, or S3 outages with **zero data loss**.<br/>3. **Multi-Consumer Fan-Out:** Streams identical log/trace data to multiple destinations simultaneously (e.g. Loki for developers, OpenSearch for SIEM security, and S3 for compliance data lake). | **+$150 – $250 / mo** for 3-broker cluster. |
 
 ---
 

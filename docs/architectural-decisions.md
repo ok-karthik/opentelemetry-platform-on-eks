@@ -15,6 +15,7 @@ This document details the architectural rationale, trade-offs, and design choice
 | **Agent Addressing** | Node-local `status.hostIP` via Downward API | Collector ClusterIP Service | Workloads declare hostIP Downward API block |
 | **Log Architecture** | Loki-first (with optional Kafka $\rightarrow$ OpenSearch) | OpenSearch / ELK for everything | Query syntax differences; dual-path maintenance |
 | **Alerting & Escalation** | Mimir Ruler SLO burn-rate + GoAlert | App-level alerts; unmaintained Grafana OnCall | Manual initial token bootstrap in GoAlert |
+| **High Availability & Kafka** | Direct LGTM default; Kafka buffer for >25k/sec | Kafka for every environment | Extra infra & broker maintenance at low scale |
 
 ---
 
@@ -113,3 +114,19 @@ This document details the architectural rationale, trade-offs, and design choice
 
 **Rejected — Grafana OnCall:** Self-hosted edition was archived upstream in March 2026.  
 **Rejected — SaaS Trials:** Expire after 14–30 days, breaking reproducibility for demo environments.
+
+---
+
+### 10. Single-Pod vs. Distributed HA Scaling & Kafka Buffer Criteria
+
+**Single-Pod vs. Distributed Multi-Pod Topology:**
+* **Demo / Medium Workloads (<25,000 events/sec):** Deploys Loki in `SingleBinary`, Tempo in `monolithic`, and Mimir with Replication Factor 1 (`RF=1`). This keeps the base observability cluster footprint compact (~2.2 vCPU / ~6.4 GiB RAM on 2× `t3.large` spot nodes, costing ~$310/mo total).
+* **Enterprise High-Availability (>25,000 events/sec):** Scales to `grafana/loki` distributed (3× read, 3× write, compactor), `tempo-distributed` (3× ingester, 2× distributor, 2× querier), and Mimir with **Replication Factor 3 (`RF=3`)** with zone-aware replication across 3 AZs on 6× `m6i.large` spot nodes.
+
+**Throughput & Burst Criteria: When to Add Kafka/MSK:**
+* **Direct Gateway Path (< 1.5M events/min or < 90M events/hr):** Horizontally scaled OTel Gateways push directly to LGTM with in-memory retry queues (`sending_queue`). Sub-50ms latency, zero extra infrastructure cost.
+* **Kafka Ingestion Tier (> 1.5M – 3.0M+ events/min or > 100M – 200M+ events/hr):** Introduced between Tier 1 and Tier 2 Gateways when any of these conditions occur:
+  1. **Extreme Burst Ingestion:** Absorbs 5x–10x sudden surges (flash sales, failovers) without triggering collector `memory_limiter` drops.
+  2. **Storage Outage Decoupling:** Provides 24–48 hours of disk-backed lag persistence during backend maintenance or S3 partition issues with **zero data loss**.
+  3. **Multi-Consumer Fan-Out:** Streams telemetry simultaneously to Loki, OpenSearch SIEM, and S3 compliance data lakes.
+
