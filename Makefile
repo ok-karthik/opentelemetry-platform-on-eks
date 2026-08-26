@@ -218,9 +218,11 @@ k8s-status: ## Show pod status on both clusters
 # caught before a 15-minute apply. Helm ignores unknown keys silently, so a
 # typo'd path produces a chart default rather than an error — diff the output
 # when changing anything under terraform/observability-cluster/helm-values/.
-helm-lint: ## Render LGTM charts locally (no cluster required)
+helm-lint: ## Render LGTM + ELK charts locally (no cluster required)
 	@helm repo add grafana https://grafana.github.io/helm-charts >/dev/null 2>&1 || true
-	@helm repo update grafana >/dev/null 2>&1 || true
+	@helm repo add opensearch https://opensearch-project.github.io/helm-charts/ >/dev/null 2>&1 || true
+	@helm repo add elastic https://helm.elastic.co >/dev/null 2>&1 || true
+	@helm repo update grafana opensearch elastic >/dev/null 2>&1 || true
 	@mkdir -p .helm-render
 	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
 	  terraform/observability-cluster/helm-values/loki.yaml.tftpl > .helm-render/loki.yaml
@@ -228,6 +230,12 @@ helm-lint: ## Render LGTM charts locally (no cluster required)
 	  terraform/observability-cluster/helm-values/tempo.yaml.tftpl > .helm-render/tempo.yaml
 	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
 	  terraform/observability-cluster/helm-values/mimir.yaml.tftpl > .helm-render/mimir.yaml
+	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
+	  terraform/observability-cluster/helm-values/opensearch.yaml.tftpl > .helm-render/opensearch.yaml
+	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
+	  terraform/observability-cluster/helm-values/opensearch-dashboards.yaml.tftpl > .helm-render/opensearch-dashboards.yaml
+	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
+	  terraform/observability-cluster/helm-values/logstash.yaml.tftpl > .helm-render/logstash.yaml
 	@echo "--- loki 7.2.0 ---"
 	@helm template loki grafana/loki --version 7.2.0 -n monitoring \
 	  -f .helm-render/loki.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'Deployment|StatefulSet|DaemonSet'
@@ -237,4 +245,13 @@ helm-lint: ## Render LGTM charts locally (no cluster required)
 	@echo "--- mimir-distributed 6.1.0 ---"
 	@helm template mimir grafana/mimir-distributed --version 6.1.0 -n monitoring \
 	  -f .helm-render/mimir.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'Deployment|StatefulSet'
+	@echo "--- opensearch 3.8.0 ---"
+	@helm template opensearch opensearch/opensearch --version 3.8.0 -n monitoring \
+	  -f .helm-render/opensearch.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'StatefulSet'
+	@echo "--- opensearch-dashboards 3.8.0 ---"
+	@helm template opensearch-dashboards opensearch/opensearch-dashboards --version 3.8.0 -n monitoring \
+	  -f .helm-render/opensearch-dashboards.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'Deployment'
+	@echo "--- logstash 8.5.1 ---"
+	@helm template logstash elastic/logstash --version 8.5.1 -n monitoring \
+	  -f .helm-render/logstash.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'StatefulSet'
 	@rm -rf .helm-render

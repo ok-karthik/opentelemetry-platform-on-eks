@@ -24,14 +24,17 @@ locals {
   # Chart versions — bump deliberately, then re-render helm-values/ to confirm
   # no value paths were renamed by the new chart.
   chart_versions = {
-    cert_manager      = "v1.21.1"
-    otel_operator     = "0.120.0"
-    aws_lb_controller = "3.4.3"
-    loki              = "7.2.0"
-    tempo             = "1.24.4"
-    mimir             = "6.1.0"
-    grafana           = "10.5.15"
-    karpenter         = "1.0.6"
+    cert_manager          = "v1.21.1"
+    otel_operator         = "0.120.0"
+    aws_lb_controller     = "3.4.3"
+    loki                  = "7.2.0"
+    tempo                 = "1.24.4"
+    mimir                 = "6.1.0"
+    grafana               = "10.5.15"
+    karpenter             = "1.0.6"
+    opensearch            = "3.8.0"
+    opensearch_dashboards = "3.8.0"
+    logstash              = "8.5.1"
   }
 }
 
@@ -356,6 +359,90 @@ resource "helm_release" "grafana" {
     helm_release.tempo,
   ]
 }
+
+# ==============================================================================
+# Optional Enterprise Log Analytics Path — OpenSearch, Dashboards, Logstash
+#
+# Disabled/Commented by default in favor of lightweight, production-grade Loki.
+# To re-enable full-text indexing, aggregations, or SIEM analytics, uncomment
+# the releases below.
+# ==============================================================================
+
+# # ------------------------------------------------------------------------------
+# # 9. OpenSearch — 1 pod, security plugin disabled
+# # ------------------------------------------------------------------------------
+# resource "helm_release" "opensearch" {
+#   count = var.deploy_observability_stack ? 1 : 0
+# 
+#   name             = "opensearch"
+#   repository       = "https://opensearch-project.github.io/helm-charts/"
+#   chart            = "opensearch"
+#   version          = local.chart_versions.opensearch
+#   namespace        = "monitoring"
+#   create_namespace = true
+# 
+#   wait    = true
+#   timeout = 600
+# 
+#   values = [
+#     templatefile("${path.module}/helm-values/opensearch.yaml.tftpl", {})
+#   ]
+# 
+#   depends_on = [
+#     module.eks,
+#     helm_release.cluster_storage,
+#   ]
+# }
+# 
+# # ------------------------------------------------------------------------------
+# # 10. OpenSearch Dashboards — 1 pod
+# # ------------------------------------------------------------------------------
+# resource "helm_release" "opensearch_dashboards" {
+#   count = var.deploy_observability_stack ? 1 : 0
+# 
+#   name       = "opensearch-dashboards"
+#   repository = "https://opensearch-project.github.io/helm-charts/"
+#   chart      = "opensearch-dashboards"
+#   version    = local.chart_versions.opensearch_dashboards
+#   namespace  = "monitoring"
+# 
+#   wait    = true
+#   timeout = 300
+# 
+#   values = [
+#     templatefile("${path.module}/helm-values/opensearch-dashboards.yaml.tftpl", {})
+#   ]
+# 
+#   depends_on = [
+#     module.eks,
+#     helm_release.opensearch,
+#   ]
+# }
+# 
+# # ------------------------------------------------------------------------------
+# # 11. Logstash — 1 pod, Kafka -> OpenSearch
+# # ------------------------------------------------------------------------------
+# resource "helm_release" "logstash" {
+#   count = var.deploy_observability_stack ? 1 : 0
+# 
+#   name       = "logstash"
+#   repository = "https://helm.elastic.co"
+#   chart      = "logstash"
+#   version    = local.chart_versions.logstash
+#   namespace  = "monitoring"
+# 
+#   wait    = true
+#   timeout = 300
+# 
+#   values = [
+#     templatefile("${path.module}/helm-values/logstash.yaml.tftpl", {})
+#   ]
+# 
+#   depends_on = [
+#     module.eks,
+#     helm_release.opensearch,
+#   ]
+# }
 
 # ==============================================================================
 # Karpenter
