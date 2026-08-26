@@ -19,6 +19,7 @@ This platform has been upgraded to implement enterprise-grade observability patt
 3. **Kafka Buffer & ELK Analytics:** the gateway's `kafka/logs` exporter buffers every app log into Kafka (`otlp_json` encoding, specifically so a downstream consumer other than another OTel Collector can read it); Logstash consumes that topic, flattens OTLP's typed-attribute structure into plain fields, and writes to OpenSearch behind an ISM-managed rollover alias. This runs **parallel to Loki, not instead of it** — Loki already owns trace-correlated app-log search; this path exists for what Loki explicitly doesn't do well (free-text search without pre-known labels, arbitrary-field aggregation, Grok parsing of formats you don't control). See [Decision 8](#8-elk-alongside-loki-not-instead-of-it) for where that line is actually drawn.
    - **Cloud Services:** In production, Kafka is provided via **Amazon MSK** and ELK via **Amazon OpenSearch Serverless** for zero-ops scale. A local Kafka stub and self-hosted single-node OpenSearch are deployed in the cluster for validation.
 4. **SLO Burn-Rate Alerting:** Mimir's ruler and Alertmanager run multi-window, multi-burn-rate SLO alerts (the Google SRE Workbook pattern) against both demo services' RED metrics — a fast 5xx spike pages within minutes, a slow leak opens a ticket instead. `page`-severity alerts route to **GoAlert**, a self-hosted on-call/escalation tool — Alertmanager can route and dedupe, but has no concept of an on-call rotation or an escalation chain. See [Decision 7](#7-slo-burn-rate-alerts-in-the-observability-layer-not-the-app) and [Decision 9](#9-goalert-over-grafana-oncall-or-a-paid-trial).
+5. **Meta-Monitoring (Monitoring the Monitoring):** The platform instruments itself. Collectors expose their own internal Prometheus metrics on `:8888` and `:8889` which are scraped and fed into Mimir. Mimir evaluates alerts on `otelcol_receiver_refused_*` (backpressure), `otelcol_processor_dropped_*` (data loss), and `absent()` metrics (silent failures). A decoupled external CloudWatch alarm combined with an SNS pager topic guarantees alerts fire even if the entire EKS observability cluster goes down. See [META_MONITORING.md](observability-platform/03-dashboards-and-alerts/META_MONITORING.md).
 
 ## Architecture
 
@@ -129,7 +130,7 @@ Five S3 buckets (Loki, Tempo, Mimir blocks/ruler/alertmanager). The alertmanager
 
 | Path | Contents |
 |---|---|
-| `terraform/` | Both clusters, VPC peering, S3, IAM |
+| `terraform/` | Both clusters, VPC peering, AWS external Meta-Monitoring, S3, IAM |
 | `terraform/observability-cluster/helm-values/` | Loki / Tempo / Mimir / Grafana values, with the reasoning inline |
 | `apps-workload-cluster-1/` | Demo services, their manifests, the DaemonSet collector |
 | `observability-platform/k8s-manifests/` | Gateway, NLB, Grafana ingress, dashboards — the deployed platform |
@@ -382,7 +383,7 @@ S3 buckets are created with `force_destroy = true`, so telemetry data is deleted
 | Instrumentation config | `HOST_IP` boilerplate in every Deployment | A mutating webhook or shared library chart that injects endpoint, resource attributes, and sampling hints |
 | Delivery | `kubectl apply` from a Makefile | Argo CD app-of-apps for real, with the gateway config as a versioned, reviewed artifact |
 | Gateway scaling | CPU HPA with no metrics source | metrics-server or KEDA, scaling on exporter queue depth and refused spans rather than CPU |
-| Meta-monitoring | Collector self-telemetry unscraped | Scrape `:8889`, alert on refused/dropped spans, and run a synthetic trace canary end to end |
+| Meta-monitoring | Collector self-telemetry scraped by Mimir, alerts on refused/dropped spans, absent metric data loss, and decoupled external Watchdog | Synthetic trace canary end to end |
 | Terraform | Local state, `-target` staged apply | Remote state with locking, separate root modules per cluster so `-target` is unnecessary, plan-on-PR in CI |
 | Regions | Single region | One observability cluster per region; never ship telemetry across a region boundary — egress cost, latency, and data residency all argue against it |
 | Security | `tls.insecure` everywhere, HTTP Grafana | mTLS on every OTLP hop, private EKS endpoints, TLS + OIDC on Grafana, per-tenant read isolation |

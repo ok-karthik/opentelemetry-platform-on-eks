@@ -199,3 +199,80 @@ data:
             annotations:
               summary: "python-product-info-service burning error budget at 1x (3d/6h)"
               description: "5xx ratio over both the 3d and 6h windows exceeds the sustainable (1x) burn rate against the 99.5% availability SLO — the budget will run out exactly at the end of the 30-day window if this continues."
+
+  meta-monitoring-rules.yaml: |
+    groups:
+      - name: observability-pipeline-meta-monitoring
+        rules:
+          # Pillar 1: Catching Processing Issues (Data Flow & Backpressure)
+          - alert: OtelCollectorReceiverRefusedTelemetry
+            expr: |
+              sum by (job, instance) (rate({__name__=~"otelcol_receiver_refused_(spans|metric_points|log_records)(_total)?"}[5m])) > 0
+            for: 2m
+            labels:
+              severity: ticket
+            annotations:
+              summary: "OTel Collector is refusing telemetry (Backpressure) on {{ $labels.instance }}"
+              description: "The gateway or agent is actively throwing HTTP 429s (pushback) or refusing data. The system is stressed but no data is permanently lost yet (agents buffer). Check downstream queue saturation and memory limiters."
+          
+          - alert: OtelCollectorProcessorDroppedTelemetry
+            expr: |
+              sum by (job, instance) (rate({__name__=~"otelcol_processor_dropped_(spans|metric_points|log_records)(_total)?"}[5m])) > 0
+            for: 1m
+            labels:
+              severity: page
+            annotations:
+              summary: "CRITICAL: OTel Collector dropped telemetry (Data Loss) on {{ $labels.instance }}"
+              description: "The collector's memory limiter kicked in or queues filled up completely, actively discarding data into the trash. Scaling is urgently required."
+
+          - alert: OtelCollectorExporterSendFailed
+            expr: |
+              sum by (job, instance, exporter) (rate({__name__=~"otelcol_exporter_send_failed_(spans|metric_points|log_records)(_total)?"}[5m])) > 0
+            for: 1m
+            labels:
+              severity: page
+            annotations:
+              summary: "CRITICAL: OTel Collector exporter send failed on {{ $labels.instance }} to {{ $labels.exporter }}"
+              description: "The collector is failing to export telemetry to the backend. The backend may be down, or network connectivity is broken."
+
+          - alert: OtelCollectorExporterQueueSaturated
+            expr: |
+              (otelcol_exporter_queue_size / otelcol_exporter_queue_capacity) > 0.8
+            for: 5m
+            labels:
+              severity: ticket
+            annotations:
+              summary: "OTel Collector queue saturated (> 80%) on {{ $labels.instance }}"
+              description: "Exporter queue depth has exceeded 80% capacity for 5 minutes. Approaching data drop conditions."
+
+          # Pillar 2: Catching Silent Failures (Nodes or Gateways Dying)
+          - alert: OtelCollectorInstanceDown
+            expr: up{job=~"otel-collector.*"} == 0
+            for: 3m
+            labels:
+              severity: page
+            annotations:
+              summary: "CRITICAL: OTel Collector pod is down: {{ $labels.instance }}"
+              description: "Prometheus cannot scrape the OTel Collector. The pod crashed or the node died silently."
+
+          - alert: OtelIngestionPipelineDeadSilence
+            expr: |
+              (
+                (sum(rate({__name__=~"otelcol_receiver_accepted_(spans|metric_points|log_records)(_total)?"}[5m])) or vector(0)) == 0
+              )
+            for: 3m
+            labels:
+              severity: page
+            annotations:
+              summary: "CRITICAL: Total Ingestion Pipeline Silence (0 spans/metrics/logs)"
+              description: "Receiving literally zero telemetry from the entire cluster for over 3 minutes. The observability network is broken (e.g., global routing failure)."
+
+          # Pillar 3: "Watch the Watcher" Rule (Architectural Isolation)
+          - alert: ObservabilityPipelineWatchdogHeartbeat
+            expr: vector(1)
+            for: 1m
+            labels:
+              severity: heartbeat
+            annotations:
+              summary: "Observability pipeline heartbeat (Dead Man's Switch)"
+              description: "This alert is always firing to prove that Mimir Ruler and Alertmanager are alive. An external watcher (e.g., CloudWatch canary) monitors this heartbeat or the API. If this alert stops firing, the entire observability stack has failed."

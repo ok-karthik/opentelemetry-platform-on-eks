@@ -22,6 +22,9 @@ spec:
     limits:
       memory: 256Mi
   config:
+    extensions:
+      health_check:
+        endpoint: "0.0.0.0:13133"
     receivers:
       otlp:
         protocols:
@@ -61,6 +64,15 @@ spec:
             ports:
               - 4319
     service:
+      extensions: [health_check]
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: 8888
       pipelines:
         # Pipeline 1: Receives traces from NLB and routes them by TraceID to ensure affinity
         traces:
@@ -94,12 +106,26 @@ spec:
     limits:
       memory: 1Gi
   config:
+    extensions:
+      health_check:
+        endpoint: "0.0.0.0:13133"
     receivers:
       # Internal receiver for load-balanced traffic from Tier 1
       otlp/internal:
         protocols:
           grpc:
             endpoint: 0.0.0.0:4319
+      prometheus/meta_monitoring:
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector-tier1-router'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['otel-collector-tier1-router-collector:8888']
+            - job_name: 'otel-collector-tier2-processor'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['127.0.0.1:8889']
     processors:
       # Filter processor to discard noisy low-level HTTP transport spans
       filter/drop_noisy_asgi:
@@ -217,6 +243,7 @@ spec:
           insecure: true
 
     service:
+      extensions: [health_check]
       telemetry:
         metrics:
           readers:
@@ -240,7 +267,7 @@ spec:
             ]
           exporters: [otlp/tempo]
         metrics:
-          receivers: [otlp/internal]
+          receivers: [otlp/internal, prometheus/meta_monitoring]
           processors: [memory_limiter, batch]
           exporters: [prometheusremotewrite]
         logs:

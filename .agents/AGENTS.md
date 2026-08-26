@@ -188,6 +188,14 @@ At enterprise scale, consider an ingestion gateway plus Kafka/MSK plus processin
 
 Prefer self-service app-team onboarding through values and CRDs over hand-crafted dashboards or platform tickets.
 
+### Meta-Monitoring
+
+The OpenTelemetry platform must monitor itself. 
+- Collectors (gateways and agents) expose metrics on `:8888` and `:8889`.
+- Mimir Ruler evaluates alerts for backpressure (`otelcol_receiver_refused_*`), data loss (`otelcol_processor_dropped_*`), and silence/down instances.
+- A decoupled Watchdog (e.g., CloudWatch Alarm over the NLB) alerts on total cluster failures.
+See `observability-platform/03-dashboards-and-alerts/META_MONITORING.md`.
+
 ## Scale Architecture
 
 Use `architecture-decisions-and-tradeoffs.md` as the main architecture reference.
