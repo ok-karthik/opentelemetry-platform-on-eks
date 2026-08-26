@@ -1,0 +1,26 @@
+# ==============================================================================
+# Argo CD AppProject: Platform
+# ==============================================================================
+# Defines the enterprise security boundary and permissions for all platform
+# and observability infrastructure applications.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: "Platform Observability Infrastructure & GitOps Blueprints"
+  sourceRepos:
+    - "*"
+  destinations:
+    - namespace: "*"
+      server: "https://kubernetes.default.svc"
+    - namespace: "*"
+      server: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

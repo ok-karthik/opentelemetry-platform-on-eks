@@ -1,67 +1,79 @@
 # ==============================================================================
 # OpenTelemetry Gateway Config: Tail-Based Sampling & Telemetry Budgeting
 # ==============================================================================
-# This configuration demonstrates "Telemetry Budgeting" at the Gateway level.
-# In a high-traffic production system (e.g. millions of PlayStation requests/sec),
-# storing 100% of HTTP 200 traces is financially wasteful and yields low value.
+# Demonstrates platform-level "Telemetry Budgeting" at the Tier 2 Gateway.
+# In high-throughput microservice systems, storing 100% of healthy HTTP 200 traces
+# is financially wasteful.
 #
-# Tail-based sampling evaluates the entire trace waterfall *after* it completes
-# before deciding whether to drop it or store it.
+# Tail-based sampling evaluates the entire distributed trace waterfall *after*
+# all spans arrive (routed via Tier 1 consistent hashing) before deciding whether
+# to retain or drop.
 # ==============================================================================
 
 receivers:
   otlp:
     protocols:
       grpc:
+        endpoint: "0.0.0.0:4317"
       http:
+        endpoint: "0.0.0.0:4318"
 
 processors:
-  # 1. Rate Limiting: Drop spans if a tenant exceeds their allocated budget per second
-  # Note: The `transform` processor or specialized rate_limiting proxies can be used here.
-  # For demonstration, we show how you could filter out spans from an abusive tenant.
+  # 1. Memory Limiter protects the gateway pod from memory exhaustion
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+
+  # 2. Rate Limiting / Budgeting: Drop spans from noisy or over-quota tenants
   filter/budgeting:
     error_mode: ignore
     traces:
       span:
         - 'resource.attributes["tenant.id"] == "abusive-tenant"'
+        - 'attributes["http.target"] == "/healthz"'
 
-  # 2. Tail Sampling: Intelligently sample traces based on content
+  # 3. Tail-Based Sampling Engine
   tail_sampling:
-    # Wait for 10 seconds to collect all spans belonging to a trace before making a decision
     decision_wait: 10s
     num_traces: 10000
     expected_new_traces_per_sec: 2000
     
     policies:
       # A. Retain 100% of all traces containing an ERROR status code
-      - name: drop-errors-policy
+      - name: retain-errors
         type: status_code
         status_code: 
           status_codes: [ ERROR ]
           
-      # B. Retain 100% of HTTP 5xx errors (useful if application status codes aren't set correctly)
-      - name: http-5xx-errors
+      # B. Retain 100% of HTTP 5xx errors
+      - name: retain-http-5xx
         type: numeric_attribute
         numeric_attribute: 
           key: "http.response.status_code"
           min_value: 500
           max_value: 599
 
-      # C. Retain 100% of slow requests (> 500 milliseconds) for performance bottleneck analysis
-      - name: latency-threshold-policy
+      # C. Retain 100% of slow requests (> 500 ms) for latency bottleneck debugging
+      - name: retain-high-latency
         type: latency
         latency: 
           threshold_ms: 500
 
-      # D. For normal, healthy transactions (HTTP 200), keep only 5% of them for baseline comparison
-      - name: healthy-probabilistic-policy
+      # D. Sample normal, healthy HTTP 200 transactions down to 5% for baseline metrics
+      - name: sample-healthy-traffic
         type: probabilistic
         probabilistic: 
           sampling_percentage: 5.0
 
+  batch:
+    send_batch_size: 1024
+    timeout: 1s
+
 exporters:
-  otlp:
-    endpoint: tempo:4317
+  otlp/tempo:
+    endpoint: "tempo.monitoring.svc.cluster.local:4317"
+    compression: gzip
     tls:
       insecure: true
 
@@ -69,5 +81,5 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [filter/budgeting, tail_sampling]
-      exporters: [otlp]
+      processors: [memory_limiter, filter/budgeting, tail_sampling, batch]
+      exporters: [otlp/tempo]

@@ -16,6 +16,7 @@ This document details the architectural rationale, trade-offs, and design choice
 | **Log Architecture** | Loki-first (with optional Kafka $\rightarrow$ OpenSearch) | OpenSearch / ELK for everything | Query syntax differences; dual-path maintenance |
 | **Alerting & Escalation** | Mimir Ruler SLO burn-rate + GoAlert | App-level alerts; unmaintained Grafana OnCall | Manual initial token bootstrap in GoAlert |
 | **High Availability & Kafka** | Direct LGTM default; Kafka buffer for >25k/sec | Kafka for every environment | Extra infra & broker maintenance at low scale |
+| **GitOps Engine** | Amazon EKS Managed Capability (Argo CD) | Self-hosted Helm Argo CD on worker nodes | Capability hourly rate; offloads Redis & node compute |
 
 ---
 
@@ -129,4 +130,20 @@ This document details the architectural rationale, trade-offs, and design choice
   1. **Extreme Burst Ingestion:** Absorbs 5x–10x sudden surges (flash sales, failovers) without triggering collector `memory_limiter` drops.
   2. **Storage Outage Decoupling:** Provides 24–48 hours of disk-backed lag persistence during backend maintenance or S3 partition issues with **zero data loss**.
   3. **Multi-Consumer Fan-Out:** Streams telemetry simultaneously to Loki, OpenSearch SIEM, and S3 compliance data lakes.
+
+---
+
+### 11. Amazon EKS Managed Capability for Argo CD vs. Self-Hosted Helm
+
+**Chosen:** Amazon EKS Managed Capability for Argo CD (`control-plane-argocd`).
+
+**Rejected — Self-Hosting Argo CD via Helm on EC2 Worker Nodes:**
+* Running 5–7 pods (`argocd-server`, `argocd-repo-server`, `argocd-application-controller`, Redis HA with Sentinel, Dex) consumes ~1.5–2.5 vCPUs and ~3–6 GiB of RAM. On AWS, this forces sizing a larger node group just to host the GitOps controller (~$50–$80/month in extra EC2 compute).
+* Requires manual operations: patching Argo CD CVEs, configuring Redis HA persistence, handling controller state migrations, and tuning cache sync intervals.
+
+**What it bought:**
+* **Zero Worker Node Overhead:** The controller, Redis caching, and UI run in AWS-managed control plane infrastructure outside the cluster with 0 vCPU / 0 MB overhead on worker nodes.
+* **100% Declarative Compatibility:** Cluster only contains standard Kubernetes CRDs (`Application`, `AppProject`). The `root-application.yaml` and child app manifests in `observability-platform/04-cluster-gitops-baseline/gitops-app-of-apps/` work out-of-the-box.
+* **Automated Lifecycle & IAM Integration:** AWS manages high availability, patching, and backups, while integrating natively with IAM Identity Center and EKS Access Entries.
+
 

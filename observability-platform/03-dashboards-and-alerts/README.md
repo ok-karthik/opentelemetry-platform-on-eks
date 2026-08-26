@@ -4,8 +4,9 @@ This directory provides blueprints for managing dashboards and alert rules at sc
 
 ## Contents
 
-- **`golden-signals/`**: Contains standardized dashboard templates (JSON) for different languages.
-- **`helm-chart/`**: Platform-owned Helm templates for generating dashboards and alerts from values.
+- **`golden-signals/`**: Standardized Grafana dashboard JSONs (Go service, Python service, and OTel Collector Meta-Monitoring).
+- **[META_MONITORING.md](./META_MONITORING.md)**: Deep-dive architecture and PromQL rules for monitoring the observability platform itself.
+- **`helm-chart/`**: Platform-owned Helm templates demonstrating how to render dashboards and alerts from GitOps values.
 
 ## How This Scales
 

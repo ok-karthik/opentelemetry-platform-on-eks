@@ -1,3 +1,13 @@
+# ==============================================================================
+# Argo CD Root Application (App-of-Apps Pattern)
+# ==============================================================================
+# Managed via AWS EKS Managed Capability for Argo CD (`control-plane-argocd`).
+#
+# HOW IT WORKS:
+# - Runs inside AWS-managed service infrastructure (zero worker node compute/RAM).
+# - Automatically discovers and reconciles all child Application manifests located
+#   in the `apps/` directory across both EKS clusters.
+# ==============================================================================
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -6,9 +16,9 @@ metadata:
 spec:
   project: platform
   source:
-    repoURL: https://github.example.internal/platform/observability-platform.git
+    repoURL: https://github.com/ok-karthik/opentelemetry-platform-on-eks.git
     targetRevision: main
-    path: observability-platform/gitops-app-of-apps/apps
+    path: observability-platform/04-cluster-gitops-baseline/gitops-app-of-apps/apps
     directory:
       recurse: true
   destination:

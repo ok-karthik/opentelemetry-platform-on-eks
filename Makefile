@@ -134,6 +134,12 @@ k8s-deploy-otel:
 	kubectl --context $(OTEL_CLUSTER) wait --for=condition=Available --timeout=600s deployment/grafana -n monitoring
 	@echo "Applying golden-signals dashboards in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/grafana-dashboards-configmap.yaml
+	@echo "Applying Mimir Ruler SLO alert rules in $(OTEL_CLUSTER)..."
+	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/mimir-ruler-rules-configmap.yaml
+	@echo "Applying Alert Sink in $(OTEL_CLUSTER)..."
+	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/alert-sink.yaml
+	@echo "Applying GoAlert in $(OTEL_CLUSTER)..."
+	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/goalert.yaml
 	@echo "Applying Ingress for Grafana in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/grafana-ingress.yaml
 	@echo "Applying Gateway in $(OTEL_CLUSTER)..."

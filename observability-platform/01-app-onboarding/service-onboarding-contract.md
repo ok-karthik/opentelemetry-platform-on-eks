@@ -78,9 +78,10 @@ The platform provides:
 | Java | OTel Operator auto-instrumentation |
 | Node.js | OTel Operator auto-instrumentation |
 | .NET | OTel Operator auto-instrumentation |
-| Go | Shared SDK bootstrap/helper package |
+| Go | Shared SDK bootstrap/helper package (`telemetry.go`) |
+| Any / Unmodified | Zero-Code eBPF DaemonSet (OBI kernel-level HTTP RED metrics & traces) |
 
-Go services should use a small internal telemetry package or copy the SDK bootstrap pattern from `apps-workload-cluster-1/apps-src/golang-app/telemetry.go`.
+Go services should use a small internal telemetry package or copy the SDK bootstrap pattern from `apps-workload-cluster-1/apps-src/golang-app/telemetry.go`. Compiled services without SDKs can rely on the node-level eBPF (OBI) probe automatically.
 
 ## Routing Contract
 
