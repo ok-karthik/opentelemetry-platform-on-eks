@@ -10,16 +10,80 @@ Everything below is deployed by the code in this repository. Where something is 
 
 ## Enterprise Architecture Patterns
 
-This platform has been upgraded to implement enterprise-grade observability patterns:
+This platform implements production-grade observability patterns engineered for reliability, cost efficiency, and scale:
 
-1. **eBPF Zero-Code Instrumentation (OBI):** A dedicated `obi-agent` DaemonSet uses [OpenTelemetry eBPF Instrumentation](https://opentelemetry.io/docs/zero-code/obi/) to natively capture RED (Rate, Errors, Duration) metrics and traces from the kernel, with no SDK in the target process. OBI is a separate upstream project from the Collector — there is no `obi` receiver in the `opentelemetry-collector-contrib` image, so it cannot be configured as a receiver on `otel-collector-agent` without building a custom Collector binary via OCB. It runs as its own process instead, forwarding OTLP to the node-local Collector over loopback so its telemetry still gets `k8sattributes`-equivalent enrichment (self-attached, since connection-based pod association can't see loopback traffic), `team` tagging, and gateway routing.
-2. **Two-Tier Gateway (Consistent Hashing):** The central OTel Gateway is split into two tiers:
-   - **Tier 1 (Router):** A Deployment that hashes trace traffic by `traceID` and routes it.
-   - **Tier 2 (Processor):** A StatefulSet that receives the hash-aligned traces. This guarantees every span for a trace lands on the exact same replica, enabling accurate **tail-based sampling**.
-3. **Log Architecture (Loki-First + Optional Kafka/ELK Analytics):** All container and application logs are ingested natively into **Loki** over OTLP (`otlphttp/loki`), providing lightweight, S3-backed storage and sub-second trace-to-log correlation in Grafana. The repository also includes a fully configured optional enterprise extension with Kafka buffering and Logstash $\rightarrow$ OpenSearch (with ISM rollover policies and attribute flattening) for arbitrary free-text indexing. See [Decision 8](docs/architectural-decisions.md#8-loki-first-logging-with-optional-kafkaelk-analytics).
-4. **Network & Latency Optimization (OTLP Compression & Topology Routing):** Ingestion pipelines across the DaemonSet agent and Gateway tiers enforce `compression: gzip` on OTLP data streams (cutting cross-AZ and cross-cluster egress bandwidth by ~80%) and enable Kubernetes Topology Aware Routing (`service.kubernetes.io/topology-mode: Auto`) on the Ingestion NLB.
-5. **SLO Burn-Rate Alerting:** Mimir's ruler and Alertmanager run multi-window, multi-burn-rate SLO alerts (the Google SRE Workbook pattern) against both demo services' RED metrics — a fast 5xx spike pages within minutes, a slow leak opens a ticket instead. `page`-severity alerts route to **GoAlert**, a self-hosted on-call/escalation tool — Alertmanager can route and dedupe, but has no concept of an on-call rotation or an escalation chain. See [Decision 7](docs/architectural-decisions.md#7-slo-burn-rate-alerts-in-the-observability-layer-not-the-app) and [Decision 9](docs/architectural-decisions.md#9-goalert-for-incident-escalation).
-6. **Meta-Monitoring (Monitoring the Monitoring):** The platform instruments itself. Collectors expose their own internal Prometheus metrics on `:8888` and `:8889` which are scraped and fed into Mimir. Mimir evaluates alerts on `otelcol_receiver_refused_*` (backpressure), `otelcol_processor_dropped_*` (data loss), and flatline detection (silent failures). A decoupled external CloudWatch alarm combined with an SNS pager topic guarantees alerts fire even if the entire EKS observability cluster goes down. See [META_MONITORING.md](observability-platform/03-dashboards-and-alerts/META_MONITORING.md).
+### 1. Zero-Code Kernel Instrumentation with eBPF ([OBI](https://opentelemetry.io/docs/zero-code/obi/))
+* **The Concept:** Traditional instrumentation requires application code changes or language-specific SDKs. [eBPF (Extended Berkeley Packet Filter)](https://ebpf.io/) runs sandboxed programs inside the Linux kernel to observe network traffic and system calls non-invasively.
+* **How It Works:** A lightweight `obi-agent` DaemonSet attaches eBPF probes in the Linux kernel to automatically extract HTTP RED (Rate, Errors, Duration) metrics and trace context from compiled applications (Go, C++, Rust, Node.js, Java) with **zero code modifications**.
+* **Data Flow:** OBI forwards raw kernel-captured telemetry over local loopback (`127.0.0.1:4317`) to the node's local OpenTelemetry Collector, which enriches it with Kubernetes metadata (`k8s.pod.name`, `k8s.namespace.name`) before shipping to the regional gateway.
+
+```text
+┌───────────────────────────────────────┐
+│     Application Pod (Unmodified)      │
+└──────────────────┬────────────────────┘
+                   │ (Kernel Network Syscalls)
+                   ▼
+┌───────────────────────────────────────┐
+│      OBI DaemonSet (eBPF Probes)      │
+└──────────────────┬────────────────────┘
+                   │ (OTLP over Loopback 127.0.0.1)
+                   ▼
+┌───────────────────────────────────────┐
+│     Node-Local OTel Collector Agent   │ ──(Enrich k8s metadata)──> Regional Gateway
+└───────────────────────────────────────┘
+```
+
+### 2. Two-Tier Gateway with Consistent Hashing (Tail-Based Sampling)
+* **The Concept:** In high-volume systems, storing 100% of successful traces is cost-prohibitive. [Tail-Based Sampling](https://opentelemetry.io/docs/concepts/sampling/#tail-sampling) evaluates spans *after* a request completes—ensuring **100% of errors and high-latency outliers are kept**, while healthy traffic is sampled down.
+* **The Challenge:** Tail sampling requires *every span of a distributed trace* to land on the **exact same collector replica**. Standard load balancers scatter spans randomly, breaking sampling accuracy.
+* **The Solution:** A two-tier architecture:
+  * **Tier 1 (Router - Deployment):** Stateless ingress layer that computes a consistent hash on the `traceID` via the OTel `loadbalancing` exporter.
+  * **Tier 2 (Processor - StatefulSet):** Stateful processing layer where all spans for a specific trace consistently converge, allowing accurate tail sampling without span loss.
+
+```text
+Workload Pods ──> [ Internal Ingestion NLB ]
+                         │
+                         ▼
+             [ Tier 1: Stateless Router ] (Hashes traceID)
+                         │ Consistent Hash Routing
+                         ▼
+             [ Tier 2: Stateful Processor ] (Evaluates 100% Errors & Latency Spikes)
+```
+
+### 3. Log Architecture: Loki-First + Optional Kafka/ELK Analytics
+* **The Concept:** Telemetry cost is dominated by log volume. This platform prioritizes a **Loki-first architecture** where logs are ingested over native OTLP (`otlphttp/loki`), stored in S3, and indexed purely by Kubernetes metadata labels—delivering lightweight storage and sub-second trace-to-log correlation in Grafana.
+* **Optional Enterprise ELK Analytics:** For enterprise use cases requiring fuzzy free-text search across arbitrary payload fields or SIEM security analytics, the platform includes a pre-configured, decoupled pipeline buffering logs through **Kafka/MSK** and **Logstash** into **OpenSearch** with Index State Management (ISM) 7-day rollover policies.
+
+```text
+Application Logs ──> [ OTel Gateway ] ──(Native OTLP)──> [ Grafana Loki (S3-Backed) ]
+                            │
+                            └──(Optional Enterprise Buffer)──> [ Kafka ] ──> [ Logstash ] ──> [ OpenSearch ]
+```
+
+### 4. Network Egress & Latency Optimization (OTLP Compression & Topology Routing)
+* **OTLP Compression:** All ingestion exporters across the DaemonSet agent and Gateway tiers enforce standard `compression: gzip`, reducing cross-cluster and cross-AZ telemetry bandwidth by **~75–85%**.
+* **Topology-Aware Routing:** The Ingestion NLB enables [Kubernetes Topology Aware Routing](https://kubernetes.io/docs/concepts/services-networking/topology-aware-routing/) (`service.kubernetes.io/topology-mode: Auto`), prioritizing in-zone routing to eliminate cross-AZ latency and data-transfer egress costs ($0.01/GB).
+
+### 5. Google SRE Multi-Window SLO Burn-Rate Alerting & On-Call Escalation
+* **The Concept:** Based on the [Google SRE Workbook](https://sre.google/workbook/alerting-on-slos/), the platform implements multi-window, multi-burn-rate alerting against application RED metrics.
+* **Burn-Rate Strategy:** Pairs short and long evaluation windows at 14.4x, 6x, 3x, and 1x burn rates against a 99.5% availability target:
+  * **Critical / Fast Burn:** Rapid error spikes page on-call engineers immediately via [GoAlert](https://goalert.me/).
+  * **Warning / Slow Burn:** Gradual budget depletion automatically routes to ticket sinks without waking engineers at 3 AM.
+
+```text
+RED Metrics ──> [ Mimir Ruler ] ──(Evaluate 14.4x/6x/3x/1x Burn Rates)──> [ Mimir Alertmanager ]
+                                                                               │
+                                    ┌──────────────────────────────────────────┴──────────────────────────┐
+                                    ▼ (Fast Burn: Critical)                                               ▼ (Slow Burn: Warning)
+                            [ GoAlert On-Call Pager ]                                            [ Alert Sink / Ticket Webhook ]
+```
+
+### 6. Meta-Monitoring ("Monitoring the Observability Platform")
+* **The Concept:** If the observability platform degrades or fails silently, engineering teams are left completely blind during outages.
+* **Implementation:**
+  * **Internal Scraping:** Gateway and DaemonSet collectors expose internal performance metrics (`:8888` / `:8889`) scraped into Mimir.
+  * **PromQL Alert Rules:** Detects receiver backpressure (`otelcol_receiver_refused_*`), processor data loss (`otelcol_processor_dropped_*`), dead instances (`up == 0`), and total ingestion flatlines.
+  * **Decoupled Out-of-Band Watchdog:** An external AWS CloudWatch Metric Alarm monitors the Gateway NLB with an SNS pager topic to alert engineers even if the entire EKS observability cluster goes down. See [META_MONITORING.md](observability-platform/03-dashboards-and-alerts/META_MONITORING.md).
 
 ## Architecture
 
@@ -87,24 +151,24 @@ Two EKS clusters (Kubernetes 1.35, `us-east-1`) in peered VPCs — `10.0.0.0/16`
 
 ### Observability cluster
 
-| Component | Chart / image | Version | Shape |
-|---|---|---|---|
-| Loki | `grafana/loki` | 7.2.0 | SingleBinary, 1 pod, S3 |
-| Tempo | `grafana/tempo` | 1.24.4 | monolithic, 1 pod, S3 |
-| Mimir | `grafana/mimir-distributed` | 6.1.0 | 10 pods, 1 replica each, S3 (incl. ruler + alertmanager) |
-| Grafana | `grafana/grafana` | 10.5.15 | 1 pod, 3 datasources |
-| OTel Gateway (Tier 1 & 2) | `otel/opentelemetry-collector-contrib` | 0.156.0 | Deployment & StatefulSet |
-| Kafka Stub | `bitnami/kafka` | 3.6 | 1 pod |
-| OpenSearch | `opensearch-project/opensearch` | 3.8.0 | 1 pod (`singleNode`), security plugin disabled, gp3 PVC |
-| OpenSearch Dashboards | `opensearch-project/opensearch-dashboards` | 3.8.0 | 1 pod |
-| Logstash | `elastic/logstash` | 8.5.1 | 1 pod, Kafka → OpenSearch |
-| GoAlert | `goalert/goalert` (digest-pinned) | v0.34.1 | 1 pod + Postgres StatefulSet |
-| Alert sink | `mendhak/http-https-echo` | 31 | 1 pod — webhook receiver for `ticket`-severity alerts |
-| OTel Operator | `opentelemetry-operator` | 0.120.0 | 1 pod |
-| cert-manager | `jetstack/cert-manager` | v1.21.1 | 3 pods |
-| AWS LB Controller | `eks/aws-load-balancer-controller` | 3.4.3 | ALB + NLB |
-| Karpenter | `oci://public.ecr.aws/karpenter` | 1.0.6 | NodePool + EC2NodeClass |
-| gp3 StorageClass | local chart `cluster-storage/` | — | installed before any PVC |
+| Component | Chart / image | Version | Shape | Status |
+|---|---|---|---|---|
+| Loki | `grafana/loki` | 7.2.0 | SingleBinary, 1 pod, S3 | **Active (Default Logs)** |
+| Tempo | `grafana/tempo` | 1.24.4 | monolithic, 1 pod, S3 | **Active (Traces)** |
+| Mimir | `grafana/mimir-distributed` | 6.1.0 | 10 pods, 1 replica each, S3 (incl. ruler + alertmanager) | **Active (Metrics & SLOs)** |
+| Grafana | `grafana/grafana` | 10.5.15 | 1 pod, 3 datasources | **Active (Dashboards)** |
+| OTel Gateway (Tier 1 & 2) | `otel/opentelemetry-collector-contrib` | 0.156.0 | Deployment & StatefulSet | **Active (Routing & Sampling)** |
+| GoAlert | `goalert/goalert` (digest-pinned) | v0.34.1 | 1 pod + Postgres StatefulSet | **Active (On-Call Escalation)** |
+| Alert sink | `mendhak/http-https-echo` | 31 | 1 pod — webhook receiver for `ticket`-severity alerts | **Active (Ticket Receiver)** |
+| OTel Operator | `opentelemetry-operator` | 0.120.0 | 1 pod | **Active** |
+| cert-manager | `jetstack/cert-manager` | v1.21.1 | 3 pods | **Active** |
+| AWS LB Controller | `eks/aws-load-balancer-controller` | 3.4.3 | ALB + NLB | **Active** |
+| Karpenter | `oci://public.ecr.aws/karpenter` | 1.0.6 | NodePool + EC2NodeClass | **Active** |
+| gp3 StorageClass | local chart `cluster-storage/` | — | installed before any PVC | **Active** |
+| Kafka Stub | `bitnami/kafka` | 3.6 | 1 pod | *Optional Extension (Disabled)* |
+| OpenSearch | `opensearch-project/opensearch` | 3.8.0 | 1 pod (`singleNode`), security disabled, gp3 PVC | *Optional Extension (Disabled)* |
+| OpenSearch Dashboards | `opensearch-project/opensearch-dashboards` | 3.8.0 | 1 pod | *Optional Extension (Disabled)* |
+| Logstash | `elastic/logstash` | 8.5.1 | 1 pod, Kafka → OpenSearch | *Optional Extension (Disabled)* |
 
 Mimir runs distributor, ingester, querier, query-frontend, query-scheduler, store-gateway, compactor, gateway, ruler, and alertmanager — one replica each. Overrides-exporter, rollout-operator, MinIO, and the bundled Kafka are disabled.
 
@@ -125,7 +189,7 @@ Node group: 2× `t3.medium` spot (min 1, max 4). No Karpenter — two app pods a
 
 ### AWS
 
-Five S3 buckets (Loki, Tempo, Mimir blocks/ruler/alertmanager). The alertmanager bucket holds Alertmanager's runtime state (silences, notification log); the ruler bucket is provisioned but unused — Mimir's ruler reads SLO rule groups from a mounted ConfigMap instead (see [Decision 7](docs/architectural-decisions.md#7-slo-burn-rate-alerts-in-the-observability-layer-not-the-app)). One IAM role reached through **EKS Pod Identity** associations, one NAT gateway per VPC, one internal NLB for OTLP ingest, one internet-facing ALB for Grafana, five 10 GiB gp3 volumes, one 1 GiB gp3 volume for Alertmanager, one 10 GiB gp3 volume for OpenSearch, one 5 GiB gp3 volume for GoAlert's Postgres. ECR repositories for both service images. CI authenticates to AWS via GitHub OIDC, not static keys.
+Five S3 buckets (Loki, Tempo, Mimir blocks/ruler/alertmanager). The alertmanager bucket holds Alertmanager's runtime state (silences, notification log); the ruler bucket is provisioned but unused — Mimir's ruler reads SLO rule groups from a mounted ConfigMap instead (see [Decision 7](docs/architectural-decisions.md#7-slo-burn-rate-alerts-in-the-observability-layer-not-the-app)). One IAM role reached through **EKS Pod Identity** associations, one NAT gateway per VPC, one internal NLB for OTLP ingest, one internet-facing ALB for Grafana, five 10 GiB gp3 volumes, one 1 GiB gp3 volume for Alertmanager, one 5 GiB gp3 volume for GoAlert's Postgres (plus an optional 10 GiB volume if OpenSearch is enabled). ECR repositories for both service images. CI authenticates to AWS via GitHub OIDC, not static keys.
 
 ### Where things live
 
@@ -164,7 +228,8 @@ observability-platform/             # platform-team-owned; the product surface
     mimir-ruler-rules-configmap.yaml #  SLO burn-rate PrometheusRule-style groups, mounted into the ruler
     alert-sink.yaml                 #   webhook echo receiver for ticket-severity alerts
     goalert.yaml                    #   on-call/escalation for page-severity alerts, + its Postgres
-    opensearch-index-bootstrap-job.yaml #  index template + ISM policy for the ELK path
+    kafka-stub.yaml                 #   TEMPLATE  optional Kafka log buffer stub
+    opensearch-index-bootstrap-job.yaml #  TEMPLATE  index template + ISM policy for the ELK path
   01-app-onboarding/                # TEMPLATE  contract + per-language values and CRs
   02-gateway-configuration/         # TEMPLATE  tenant routing, real sampling budget
   03-dashboards-and-alerts/
