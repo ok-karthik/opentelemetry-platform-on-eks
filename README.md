@@ -21,10 +21,10 @@ In traditional setups where microservices send 100% of raw telemetry directly to
 
 #### Real-World FinOps Cost Comparison & ROI:
 
-| Telemetry Scale (Monthly Volume) | Traditional SaaS (e.g., Datadog) | OpenTelemetry Platform on EKS (This Repo) | Monthly Savings | Annual Cost Reduction |
+| Telemetry Scale (Monthly Volume) | Traditional Commercial SaaS (e.g., Datadog) | OpenTelemetry Platform on AWS EKS (This Repo) | Monthly Savings | Annual Cost Reduction |
 |---|---|---|---|---|
-| **Mid Scale (e.g., 20 Nodes)**<br/>• 10M Requests (~20M Spans)<br/>• 50 GB Logs (~30M Log Events)<br/>• 500 Custom Metrics | **~$1,050 / mo**<br/>• Hosts/APM: ~$920<br/>• Ingested Spans/Logs: ~$105<br/>• Metrics: ~$25 | **~$310 / mo**<br/>• 2× EKS Control Planes: ~$146<br/>• Spot EC2 Nodes (t3.large): ~$54<br/>• AWS S3 Object Storage: ~$5<br/>• NAT / Load Balancers: ~$105 | **~$740 / mo** | **~$8,880 / yr<br/>(~70% Saved)** |
-| **Enterprise Scale (e.g., 100 Nodes)**<br/>• 100M Requests (~500M Spans)<br/>• 1 TB Logs (~500M Log Events)<br/>• 5,000 Custom Metrics | **~$8,500 – $12,000+ / mo**<br/>• Hosts/APM: ~$4,600<br/>• Spans & Logs Indexing: ~$2,500+<br/>• Custom Metrics: ~$250<br/>• Cross-AZ Egress: ~$350 | **~$580 – $750 / mo**<br/>• 2× EKS Control Planes: ~$146<br/>• Spot EC2 Fleet (4× m6i.large): ~$180<br/>• S3 Object Storage (~2TB): ~$46<br/>• Compressed Telemetry Egress: ~$50<br/>• Load Balancers: ~$70 | **~$7,800+ / mo** | **~$93,000 – $135,000+ / yr<br/>(~92% Saved)** |
+| **Mid Scale**<br/>• 20 Kubernetes Nodes<br/>• 10M Requests (~20M Spans)<br/>• 50 GB Logs (~30M Events)<br/>• 500 Custom Metrics | **~$1,050 / month**<br/>*(~$12,600 / year)*<br/><br/><code>├── Hosts/APM: ~$920<br/>├── Spans & Logs: ~$105<br/>└── Metrics: ~$25</code> | **~$310 / month**<br/>*(~$3,720 / year)*<br/><br/><code>├── 2× EKS Control Planes: ~$146<br/>├── Spot EC2 Nodes (t3.large): ~$54<br/>├── AWS S3 Storage: ~$5<br/>└── NAT / Load Balancers: ~$105</code> | **~$740 / mo** | **~$8,880 / year**<br/>📉 **~70% Saved** |
+| **Enterprise Scale**<br/>• 100 Kubernetes Nodes<br/>• 100M Requests (~500M Spans)<br/>• 1 TB Logs (~500M Events)<br/>• 5,000 Custom Metrics | **~$8,500 – $12,000+ / month**<br/>*(~$102,000 – $144,000+ / year)*<br/><br/><code>├── Hosts/APM: ~$4,600<br/>├── Spans & Logs Indexing: ~$2,500+<br/>├── Custom Metrics: ~$250<br/>└── Cross-AZ Egress: ~$350</code> | **~$580 – $750 / month**<br/>*(~$6,960 – $9,000 / year)*<br/><br/><code>├── 2× EKS Control Planes: ~$146<br/>├── Spot EC2 Fleet (m6i.large): ~$180<br/>├── AWS S3 Storage (~2TB): ~$46<br/>├── Compressed Egress: ~$50<br/>└── Load Balancers: ~$70</code> | **~$7,800+ / mo** | **~$93,000 – $135,000+ / year**<br/>📉 **~92% Saved** |
 
 ---
 
