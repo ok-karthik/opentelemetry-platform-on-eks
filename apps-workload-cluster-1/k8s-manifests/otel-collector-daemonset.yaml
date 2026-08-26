@@ -141,6 +141,7 @@ spec:
       # and should be rendered from Helm/cluster bootstrap values in production.
       otlp:
         endpoint: otel-gateway-regional.monitoring.svc.cluster.local:4317
+        compression: gzip
         tls:
           insecure: true
 

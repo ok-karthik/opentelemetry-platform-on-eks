@@ -39,11 +39,12 @@ spec:
         limit_percentage: 75
         spike_limit_percentage: 15
     exporters:
-      # Trace affinity load balancer - hashes by traceID
+      # Trace affinity load balancer - hashes by traceID with gzip compression
       loadbalancing/traces:
         routing_key: traceID
         protocol:
           otlp:
+            compression: gzip
             tls:
               insecure: true
         resolver:
@@ -51,11 +52,12 @@ spec:
             service: otel-collector-tier2-processor-collector
             ports:
               - 4319
-      # Metrics and Logs load balancer - hashes by service name
+      # Metrics and Logs load balancer - hashes by service name with gzip compression
       loadbalancing/metrics-logs:
         routing_key: service
         protocol:
           otlp:
+            compression: gzip
             tls:
               insecure: true
         resolver:
@@ -201,32 +203,21 @@ spec:
         tls:
           insecure: true
       
-      # Pushes traces to Tempo
+      # Pushes traces to Tempo with compression
       otlp/tempo:
         endpoint: "tempo.monitoring.svc.cluster.local:4317"
+        compression: gzip
         tls:
           insecure: true
 
-      # Buffers logs into Kafka before Logstash consumes them into OpenSearch —
-      # see observability-platform/k8s-manifests/goalert.yaml's sibling files
-      # (opensearch-index-bootstrap-job.yaml, and Logstash's own values under
-      # terraform/observability-cluster/helm-values/logstash.yaml.tftpl) for
-      # the consumer side. This used to be a dead-end MOCK with no consumer;
-      # it isn't anymore.
-      #
-      # `encoding: otlp_json` is not this exporter's default (that's
-      # `otlp_proto`, an OTLP protobuf binary payload). It's set explicitly
-      # because Logstash's kafka input can decode JSON with its stock `json`
-      # codec but has no OTLP protobuf decoder — leaving this on the default
-      # would mean every message lands in Kafka unreadable by anything
-      # downstream, the same "installs cleanly, fails silently" shape as
-      # every other trap this repo documents.
-      kafka/logs:
-        brokers:
-          - "kafka.monitoring.svc.cluster.local:9092"
-        protocol_version: "2.0.0"
-        topic: "otel-logs-buffer"
-        encoding: otlp_json
+      # Optional Kafka log buffer for OpenSearch/Logstash (Commented by default).
+      # Re-enable when deploying the enterprise ELK analytics tier.
+      # kafka/logs:
+      #   brokers:
+      #     - "kafka.monitoring.svc.cluster.local:9092"
+      #   protocol_version: "2.0.0"
+      #   topic: "otel-logs-buffer"
+      #   encoding: otlp_json
 
       # Pushes logs to Loki over its native OTLP endpoint.
       #
@@ -273,7 +264,7 @@ spec:
         logs:
           receivers: [otlp/internal]
           processors: [memory_limiter, batch]
-          exporters: [kafka/logs, otlphttp/loki]
+          exporters: [otlphttp/loki]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

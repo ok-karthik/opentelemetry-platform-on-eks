@@ -1,3 +1,7 @@
+# ==============================================================================
+# Optional: Kafka Stub for Enterprise OpenSearch/Logstash Path
+# (Commented/Disabled by default; Loki is the primary lightweight log backend)
+# ==============================================================================
 apiVersion: v1
 kind: Service
 metadata:

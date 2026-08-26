@@ -1,3 +1,7 @@
+# ==============================================================================
+# Optional: OpenSearch Index Bootstrap Job for Enterprise Log Analytics
+# (Disabled/Commented by default; Loki is the primary lightweight log backend)
+# ==============================================================================
 # Real index management, not defaults: an explicit index template (so field
 # types are declared once instead of left to dynamic mapping, which is how
 # unrelated services writing the same field name with different types starts
