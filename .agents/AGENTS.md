@@ -196,7 +196,7 @@ See `observability-platform/dashboards-and-alerts/META_MONITORING.md`.
 
 ## Scale Architecture
 
-Use `architecture-decisions-and-tradeoffs.md` as the main architecture reference.
+Use `docs/architectural-decisions.md` as the main architecture reference.
 
 The preferred production evolution is:
 

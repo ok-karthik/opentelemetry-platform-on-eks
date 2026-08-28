@@ -330,7 +330,6 @@ Five S3 buckets (Loki, Tempo, Mimir blocks/ruler/alertmanager). The alertmanager
 | `observability-platform/dashboards-and-alerts/` | Golden signals dashboards, PrometheusRule generator chart, META_MONITORING.md |
 | `observability-platform/gitops/` | Argo CD App-of-Apps and regional workload cluster baseline aliases |
 | `.agents/AGENTS.md` | Long-form conventions and chart traps |
-| `architecture-decisions-and-tradeoffs.md` | Five collector topology patterns compared, with diagrams |
 
 <details>
 <summary>Full tree, annotated with what is deployed and what is a template</summary>
@@ -502,7 +501,7 @@ S3 buckets are created with `force_destroy = true`, so telemetry data is deleted
 | Regions | Single region | One observability cluster per region; never ship telemetry across a region boundary — egress cost, latency, and data residency all argue against it |
 | Security | `tls.insecure` everywhere, HTTP Grafana | mTLS on every OTLP hop, private EKS endpoints, TLS + OIDC on Grafana, per-tenant read isolation |
 
-Longer form, including the sidecar and Kafka-buffer topologies compared side by side: [`architecture-decisions-and-tradeoffs.md`](architecture-decisions-and-tradeoffs.md).
+Longer form, including the sidecar and Kafka-buffer topologies compared side by side: [docs/architectural-decisions.md](docs/architectural-decisions.md#appendix-architecture-evolution-patterns-from-simple-to-global-enterprise).
 
 ## Screenshots
 
