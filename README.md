@@ -13,64 +13,44 @@ Deployable in **Single-Cluster Mode (default, ~$150/mo)** for fast iteration or 
 ```mermaid
 flowchart TB
     subgraph WorkloadCluster["Workload Cluster / Namespace (VPC 10.0.0.0/16)"]
-        subgraph Pod1["Go Service (Programmatic SDK)"]
-            GoApp["golang-product-service\n(Docker Hub)"]
-        end
-        subgraph Pod2["Python Service (Auto-Instrumented)"]
-            PyApp["python-product-info-service\n(Docker Hub)"]
-        end
-        
-        DaemonSetAgent["OTel Collector DaemonSet\n(hostNetwork: true :4317)\nk8sattributes + filelog + kubeletstats"]
-        OBI["OBI eBPF DaemonSet\n(Linux Kernel HTTP RED & TCP Visibility)"]
-        
-        GoApp -->|"OTLP (status.hostIP:4317)"| DaemonSetAgent
-        PyApp -->|"OTLP (status.hostIP:4317)"| DaemonSetAgent
+        GoApp["golang-product-service\n(Programmatic Go SDK)"]
+        PyApp["python-product-info-service\n(Auto-Instrumented Python)"]
         GoApp -.->|"Trace Context (W3C)"| PyApp
+        
+        DaemonSetAgent["OTel Collector DaemonSet (:4317)\nk8sattributes + filelog + kubeletstats"]
+        OBI["OBI eBPF DaemonSet\n(Linux Kernel TCP & HTTP RED)"]
+        
+        GoApp -->|"OTLP (status.hostIP)"| DaemonSetAgent
+        PyApp -->|"OTLP (status.hostIP)"| DaemonSetAgent
         OBI -->|"Kernel Probes (Loopback)"| DaemonSetAgent
     end
 
     subgraph ObsCluster["Observability Cluster (VPC 10.1.0.0/16)"]
-        NLB["AWS Internal NLB\n(Ingress Router)"]
+        NLB["AWS Internal NLB (Ingress Router)"]
         
         subgraph GatewayFleet["Central OTel Gateway Fleet"]
             Router["Tier 1: Stateless Router\n(Consistent Hash by traceID)"]
-            Processor["Tier 2: Stateful Processor\n(Tail-Sampling + OTTL Filters)"]
-            Router -->|"gRPC :4319\n(Trace Affinity)"| Processor
+            Processor["Tier 2: Stateful Processor\n(Tail-Sampling + OTTL Normalization)"]
+            Router -->|"gRPC :4319 (Trace Affinity)"| Processor
         end
 
-        subgraph Backends["Storage Backends"]
+        subgraph Backends["Storage Backends (S3 & Serverless)"]
             AMP[("Amazon Managed Prometheus\n(Serverless Metrics via SigV4)")]
-            Loki[("Loki (SingleBinary)\nS3 via VPC Endpoint")]
-            Tempo[("Tempo (Monolithic)\nS3 via VPC Endpoint")]
-            Mimir[("Mimir (Metrics)\nSelf-Hosted Alternative")]
-            Kafka[("Kafka / MSK\nOptional Buffer")]
-            OpenSearch[("OpenSearch\nOptional Analytics")]
-            Logstash["Logstash"]
+            Loki[("Grafana Loki (SingleBinary)\nS3 via Free VPC Endpoint")]
+            Tempo[("Grafana Tempo (Monolithic)\nS3 via Free VPC Endpoint")]
         end
 
-        subgraph Escalation["Alerting & Escalation"]
-            Alertmanager["Alert Engine / Alertmanager"]
-            GoAlert["GoAlert\n(On-Call Pager)"]
-            AlertSink["Alert Sink\n(Ticket Receiver)"]
-            Alertmanager -->|"Fast Burn (Critical)"| GoAlert
-            Alertmanager -->|"Slow Burn (Warning)"| AlertSink
-        end
-
-        Grafana["Grafana\n(Single Pane of Glass UI)"]
+        Grafana["Grafana UI\n(Unified Dashboards & Traces)"]
         Grafana -->|"SigV4 PromQL"| AMP
         Grafana -->|"LogQL"| Loki
         Grafana -->|"TraceQL"| Tempo
-        Processor -.->|"Optional Log Buffer"| Kafka
-        Kafka -.-> Logstash
-        Logstash -.-> OpenSearch
     end
 
-    DaemonSetAgent -->|"OTLP / Gzip (VPC Peering / Local)"| NLB
+    DaemonSetAgent -->|"OTLP / Gzip (VPC Peering)"| NLB
     NLB --> Router
     Processor -->|"SigV4 Remote Write"| AMP
     Processor -->|"Native OTLP"| Loki
     Processor -->|"OTLP"| Tempo
-    Processor -.->|"Alternative Metrics"| Mimir
 ```
 
 ### The Telemetry Flow (In 5 Steps)
@@ -104,6 +84,23 @@ Traditional SaaS observability vendors (Datadog, Dynatrace, New Relic) bill heav
 * **Free S3 Gateway VPC Endpoints:** Both VPCs route S3 traffic directly over AWS internal network routes at **$0.00/GB data transfer**, bypassing NAT Gateways ($0.045/GB) and eliminating egress bottlenecks.
 * **The "FinOps Firewall" for Existing SaaS:** Even when mandated to retain commercial SaaS, deploying this gateway in-VPC acts as an intelligent firewall, filtering out 90% of healthy noise before external egress to save tens of thousands annually.
 
+### 💡 Architectural FAQ: CloudWatch vs. Loki and When Kafka is Actually Needed
+
+#### Q: "Why not just send EKS logs directly to CloudWatch? It's already built into AWS."
+* **The 20× Cost Penalty:** CloudWatch Logs charges **$0.50 per GB** for ingestion. For a modest EKS cluster generating 2 TB to 5 TB of logs/month, CloudWatch costs **$1,000 to $2,500 every month** just to ingest raw log text.
+* **The S3 + Loki Advantage:** This platform stores logs in **Grafana Loki backed by S3**:
+  - S3 storage costs **$0.023 per GB** with **$0.00/GB ingestion fees**.
+  - All log traffic routes over a **Free S3 Gateway VPC Endpoint** at **$0.00/GB data transfer**, completely avoiding NAT Gateway bandwidth charges ($0.045/GB).
+  - Result: That same 2 TB log volume drops from **$1,000/month down to ~$46/month** (>95% savings).
+* **Sub-Second Correlation:** CloudWatch cannot natively link an OTel `trace_id` from Tempo to its exact matching log line with a single click. Loki and Grafana correlate traces, metrics, and logs out of the box.
+
+#### Q: "Why introduce an optional Kafka buffer? Doesn't it add cost, delays, and complexity?"
+* **Direct Ingestion is the Default ($0 extra cost, sub-50ms latency):** In 95% of deployments, OTel Gateways push directly to Loki, Tempo, and AMP with in-memory retry queues. You **do not need Kafka** for standard workloads.
+* **When Kafka is Actually Justified (Enterprise Scale):**
+  1. **Decoupled SIEM / Compliance Fan-Out:** When a Security Operations Center (SOC) mandates streaming the same log data to both Loki (for developers) AND OpenSearch/Splunk/S3 (for SIEM compliance) without overloading application pods.
+  2. **Extreme Outage & Spike Decoupling (>25,000 events/sec):** During S3 maintenance, schema compactions, or sudden Black Friday traffic spikes, an in-memory queue will fill and OTel `memory_limiter` will drop spans. Kafka provides a 24–48 hour durable disk-backed buffer so **zero telemetry is dropped**.
+  3. **Summary:** If you don't have multi-destination fan-out or flash surges, **stay with the direct path**. Kafka is an optional, disabled-by-default template for enterprise burst resilience.
+
 ---
 
 ## 🏛️ Core Platform Capabilities
@@ -111,7 +108,15 @@ Traditional SaaS observability vendors (Datadog, Dynatrace, New Relic) bill heav
 * **The 4 Levels of Telemetry Instrumentation:** Combines Linux kernel eBPF (catches instant `OOMKilled` Exit 137 and cross-AZ TCP drops), runtime auto-instrumentation (OTel Operator for Python/Java/Node.js stack traces and SQL queries), programmatic Go SDK (`telemetry.go`), and SaaS export. 👉 **[Read the Complete Instrumentation Guide](observability-platform/onboarding/instrumentation-tiers-and-ebpf.md)**.
 * **Two-Tier Consistent Hashing:** Solves the distributed tail-sampling challenge by using a stateless router tier to hash `trace_id` to a stateful processor tier, guaranteeing span affinity without data loss.
 * **Serverless Metrics with AMP:** Eliminates 10 stateful Mimir pods, cutting cluster memory requests by **~1.9 GiB** with zero pod maintenance toil.
-* **Google SRE Multi-Window SLO Alerting:** Evaluates 14.4x, 6x, 3x, and 1x error budget burn rates against RED metrics, paging on-call engineers via GoAlert for critical fast burns and ticket sinks for slow burns.
+* **Google SRE Multi-Window SLO Alerting:** Evaluates 14.4x, 6x, 3x, and 1x error budget burn rates against RED metrics, paging on-call engineers via GoAlert for critical fast burns and ticket sinks for slow burns:
+
+```mermaid
+flowchart LR
+    Metrics["App RED Metrics\n(HTTP Rate, Errors, Duration)"] --> RuleEngine["Prometheus Rule Engine\n(AMP / Alertmanager)"]
+    RuleEngine -->|"Fast Burn (Critical 14.4x / 6x)"| GoAlert["GoAlert On-Call Pager\n(Push / SMS / Phone)"]
+    RuleEngine -->|"Slow Burn (Warning 3x / 1x)"| AlertSink["Ticket Webhook Sink\n(Slack / Jira)"]
+```
+
 * **Out-of-Band Meta-Monitoring:** Collector self-telemetry (`:8888`/`:8889`) monitors data drops and backpressure, paired with an external AWS CloudWatch + SNS watchdog for total cluster failure. 👉 **[Read Meta-Monitoring Guide](observability-platform/dashboards-and-alerts/META_MONITORING.md)**.
 * **Multi-Tenancy Access Control & Quotas:** Physical S3 prefix partitioning (`X-Scope-OrgID`), Grafana Organizations mapped to corporate SSO, and FinOps stream limits. 👉 **[Read Multi-Tenancy Architecture](docs/multi-tenancy.md)**.
 
