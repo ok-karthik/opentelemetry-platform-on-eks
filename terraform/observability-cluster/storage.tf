@@ -10,16 +10,19 @@ resource "aws_s3_bucket" "tempo_data" {
 }
 
 resource "aws_s3_bucket" "mimir_blocks" {
+  count         = var.use_amazon_managed_prometheus ? 0 : 1
   bucket_prefix = "${var.cluster_name}-mimir-blocks-"
   force_destroy = true
 }
 
 resource "aws_s3_bucket" "mimir_ruler" {
+  count         = var.use_amazon_managed_prometheus ? 0 : 1
   bucket_prefix = "${var.cluster_name}-mimir-ruler-"
   force_destroy = true
 }
 
 resource "aws_s3_bucket" "mimir_alertmanager" {
+  count         = var.use_amazon_managed_prometheus ? 0 : 1
   bucket_prefix = "${var.cluster_name}-mimir-alert-"
   force_destroy = true
 }
@@ -45,18 +48,22 @@ data "aws_iam_policy_document" "grafana_stack_s3_access" {
       "s3:ListBucketMultipartUploads",
       "s3:ListMultipartUploadParts"
     ]
-    resources = [
-      aws_s3_bucket.loki_data.arn,
-      "${aws_s3_bucket.loki_data.arn}/*",
-      aws_s3_bucket.tempo_data.arn,
-      "${aws_s3_bucket.tempo_data.arn}/*",
-      aws_s3_bucket.mimir_blocks.arn,
-      "${aws_s3_bucket.mimir_blocks.arn}/*",
-      aws_s3_bucket.mimir_ruler.arn,
-      "${aws_s3_bucket.mimir_ruler.arn}/*",
-      aws_s3_bucket.mimir_alertmanager.arn,
-      "${aws_s3_bucket.mimir_alertmanager.arn}/*"
-    ]
+    resources = concat(
+      [
+        aws_s3_bucket.loki_data.arn,
+        "${aws_s3_bucket.loki_data.arn}/*",
+        aws_s3_bucket.tempo_data.arn,
+        "${aws_s3_bucket.tempo_data.arn}/*",
+      ],
+      var.use_amazon_managed_prometheus ? [] : [
+        aws_s3_bucket.mimir_blocks[0].arn,
+        "${aws_s3_bucket.mimir_blocks[0].arn}/*",
+        aws_s3_bucket.mimir_ruler[0].arn,
+        "${aws_s3_bucket.mimir_ruler[0].arn}/*",
+        aws_s3_bucket.mimir_alertmanager[0].arn,
+        "${aws_s3_bucket.mimir_alertmanager[0].arn}/*"
+      ]
+    )
   }
 }
 
@@ -106,6 +113,7 @@ resource "aws_eks_pod_identity_association" "tempo" {
 }
 
 resource "aws_eks_pod_identity_association" "mimir" {
+  count           = var.use_amazon_managed_prometheus ? 0 : 1
   cluster_name    = module.eks.cluster_name
   namespace       = "monitoring"
   service_account = "mimir"

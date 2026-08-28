@@ -299,10 +299,10 @@ resource "helm_release" "tempo" {
 }
 
 # ------------------------------------------------------------------------------
-# 7. Mimir — 8 pods (one per component)
+# 7. Mimir — Optional self-hosted fallback (disabled when use_amazon_managed_prometheus=true)
 # ------------------------------------------------------------------------------
 resource "helm_release" "mimir" {
-  count = var.deploy_observability_stack ? 1 : 0
+  count = (var.deploy_observability_stack && !var.use_amazon_managed_prometheus) ? 1 : 0
 
   name             = "mimir"
   repository       = "https://grafana.github.io/helm-charts"
@@ -316,9 +316,9 @@ resource "helm_release" "mimir" {
 
   values = [
     templatefile("${path.module}/helm-values/mimir.yaml.tftpl", {
-      mimir_blocks_bucket       = aws_s3_bucket.mimir_blocks.bucket
-      mimir_ruler_bucket        = aws_s3_bucket.mimir_ruler.bucket
-      mimir_alertmanager_bucket = aws_s3_bucket.mimir_alertmanager.bucket
+      mimir_blocks_bucket       = var.use_amazon_managed_prometheus ? "" : aws_s3_bucket.mimir_blocks[0].bucket
+      mimir_ruler_bucket        = var.use_amazon_managed_prometheus ? "" : aws_s3_bucket.mimir_ruler[0].bucket
+      mimir_alertmanager_bucket = var.use_amazon_managed_prometheus ? "" : aws_s3_bucket.mimir_alertmanager[0].bucket
       aws_region                = var.aws_region
     })
   ]
@@ -326,7 +326,6 @@ resource "helm_release" "mimir" {
   depends_on = [
     module.eks,
     helm_release.cluster_storage,
-    aws_eks_pod_identity_association.mimir,
   ]
 }
 
@@ -346,16 +345,18 @@ resource "helm_release" "grafana" {
   wait    = true
   timeout = 300
 
-  # templatefile (not file) so the `$${...}` escapes in the datasource
-  # definitions collapse to the literal `${...}` Grafana expects.
+  # templatefile passes AMP configuration and escapes $${...}
   values = [
-    templatefile("${path.module}/helm-values/grafana.yaml.tftpl", {})
+    templatefile("${path.module}/helm-values/grafana.yaml.tftpl", {
+      use_amp                = var.use_amazon_managed_prometheus
+      amp_workspace_endpoint = var.use_amazon_managed_prometheus ? aws_prometheus_workspace.amp[0].prometheus_endpoint : ""
+      aws_region             = var.aws_region
+    })
   ]
 
   depends_on = [
     module.eks,
     helm_release.loki,
-    helm_release.mimir,
     helm_release.tempo,
   ]
 }

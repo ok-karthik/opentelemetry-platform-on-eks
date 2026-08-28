@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Variables
-SINGLE_CLUSTER ?= false
+SINGLE_CLUSTER ?= true
 APPS_CLUSTER ?= apps-workload-cluster-1
 OTEL_CLUSTER ?= observability-cluster
 AWS_REGION ?= us-east-1
@@ -163,6 +163,17 @@ k8s-deploy-otel:
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/goalert.yaml
 	@echo "Applying Ingress for Grafana in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/grafana-ingress.yaml
+	@echo "Configuring AMP endpoint in $(OTEL_CLUSTER)..."
+	@AMP_EP=$$(aws amp list-workspaces --region $(AWS_REGION) --query 'workspaces[?alias==`$(OTEL_CLUSTER)-amp`].prometheusEndpoint | [0]' --output text 2>/dev/null); \
+	if [ -n "$$AMP_EP" ] && [ "$$AMP_EP" != "None" ]; then \
+	  kubectl --context $(OTEL_CLUSTER) create configmap amp-config -n monitoring \
+	    --from-literal=endpoint="$${AMP_EP}api/v1/remote_write" \
+	    --dry-run=client -o yaml | kubectl --context $(OTEL_CLUSTER) apply -f -; \
+	else \
+	  kubectl --context $(OTEL_CLUSTER) create configmap amp-config -n monitoring \
+	    --from-literal=endpoint="http://mimir-gateway.monitoring.svc.cluster.local/api/v1/push" \
+	    --dry-run=client -o yaml | kubectl --context $(OTEL_CLUSTER) apply -f -; \
+	fi
 	@echo "Applying Gateway in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/otel-collector-gateway.yaml
 	@echo "Exposing Gateway via AWS NLB in $(OTEL_CLUSTER)..."

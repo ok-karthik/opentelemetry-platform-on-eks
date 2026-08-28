@@ -37,3 +37,14 @@ output "vpc_cidr" {
   description = "The CIDR block of the VPC"
   value       = local.vpc_cidr
 }
+
+output "amp_workspace_endpoint" {
+  description = "The Prometheus remote-write / query endpoint for Amazon Managed Prometheus"
+  value       = var.use_amazon_managed_prometheus ? aws_prometheus_workspace.amp[0].prometheus_endpoint : ""
+}
+
+output "amp_workspace_id" {
+  description = "The ID of the Amazon Managed Prometheus workspace"
+  value       = var.use_amazon_managed_prometheus ? aws_prometheus_workspace.amp[0].id : ""
+}
+

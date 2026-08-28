@@ -141,3 +141,21 @@ resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private_rt_otel.id
 }
+
+# ==============================================================================
+# S3 Gateway VPC Endpoint (100% Free - Cuts NAT Data Transfer for Loki/Tempo)
+# ==============================================================================
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids = [
+    aws_route_table.private_rt_otel.id,
+    aws_route_table.public_rt_otel.id
+  ]
+
+  tags = {
+    Name = "${local.project}-${local.env}-s3-gateway-endpoint"
+  }
+}
+

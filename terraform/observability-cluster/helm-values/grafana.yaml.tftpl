@@ -40,6 +40,20 @@ datasources:
   datasources.yaml:
     apiVersion: 1
     datasources:
+%{ if use_amp ~}
+      - name: Amazon Managed Prometheus (AMP)
+        type: prometheus
+        uid: prometheus
+        access: proxy
+        url: ${amp_workspace_endpoint}
+        isDefault: true
+        jsonData:
+          httpMethod: POST
+          sigV4Auth: true
+          sigV4AuthType: default
+          sigV4Region: ${aws_region}
+          timeInterval: 15s
+%{ else ~}
       - name: Mimir (Prometheus)
         type: prometheus
         uid: prometheus
@@ -49,6 +63,7 @@ datasources:
         jsonData:
           httpMethod: POST
           timeInterval: 15s
+%{ endif ~}
 
       - name: Loki
         type: loki

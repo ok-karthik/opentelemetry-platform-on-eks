@@ -75,3 +75,10 @@ variable "deploy_opensearch_stack" {
   default     = false
 }
 
+variable "use_amazon_managed_prometheus" {
+  description = "Whether to use Amazon Managed Service for Prometheus (AMP) for metrics instead of self-hosting Mimir (saves 10 pods, 3 PVCs, and eliminates Mimir timeouts)"
+  type        = bool
+  default     = true
+}
+
+

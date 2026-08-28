@@ -107,10 +107,20 @@ spec:
       memory: 512Mi
     limits:
       memory: 1Gi
+  env:
+    - name: AMP_ENDPOINT
+      valueFrom:
+        configMapKeyRef:
+          name: amp-config
+          key: endpoint
+          optional: true
   config:
     extensions:
       health_check:
         endpoint: "0.0.0.0:13133"
+      sigv4auth:
+        region: "us-east-1"
+        service: "aps"
     receivers:
       # Internal receiver for load-balanced traffic from Tier 1
       otlp/internal:
@@ -197,7 +207,13 @@ spec:
               - delete_key(attributes, "http.target")
 
     exporters:
-      # Pushes metrics to Mimir via Prometheus remote write HTTP API
+      # Pushes metrics to Amazon Managed Prometheus (AMP) via AWS SigV4
+      prometheusremotewrite/amp:
+        endpoint: "${env:AMP_ENDPOINT}"
+        auth:
+          authenticator: sigv4auth
+
+      # Pushes metrics to Mimir via Prometheus remote write HTTP API (Fallback)
       prometheusremotewrite:
         endpoint: "http://mimir-gateway.monitoring.svc.cluster.local/api/v1/push"
         tls:
@@ -209,6 +225,10 @@ spec:
         compression: gzip
         tls:
           insecure: true
+
+      # Optional AWS X-Ray exporter for CloudWatch traces
+      awsxray:
+        region: "us-east-1"
 
       # Optional Kafka log buffer for OpenSearch/Logstash (Commented by default).
       # Re-enable when deploying the enterprise ELK analytics tier.
@@ -234,7 +254,7 @@ spec:
           insecure: true
 
     service:
-      extensions: [health_check]
+      extensions: [health_check, sigv4auth]
       telemetry:
         metrics:
           readers:
@@ -260,7 +280,7 @@ spec:
         metrics:
           receivers: [otlp/internal, prometheus/meta_monitoring]
           processors: [memory_limiter, batch]
-          exporters: [prometheusremotewrite]
+          exporters: [prometheusremotewrite/amp]
         logs:
           receivers: [otlp/internal]
           processors: [memory_limiter, batch]
