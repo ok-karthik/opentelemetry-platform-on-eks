@@ -73,14 +73,14 @@ A common architectural question is whether to buffer telemetry through **Apache 
 Throughput / Minute:       < 1.5 Million Events/min              > 1.5M – 3.0M+ Events/min
 Throughput / Hour:         < 90 Million Events/hr                > 100M – 200M+ Events/hr
                           ┌────────────────────────┐            ┌────────────────────────┐
-Architecture Choice:      │ Direct OTel to LGTM    │            │ OTel ──> Kafka ──> LGTM│
+Architecture Choice:      │ Direct to AMP/Loki/Tempo│            │ OTel ──> Kafka ──> Backends
                           │ (In-Memory / Retries)  │            │ (Disk-Backed Buffer)   │
                           └────────────────────────┘            └────────────────────────┘
 ```
 
 | Ingestion Mode | Recommended Traffic Threshold | Why & When to Use It | Cost Impact |
 |---|---|---|---|
-| **Direct-to-LGTM** *(Default)* | **< 25,000 events/sec**<br/>• < 1.5M events/min<br/>• < 90M events/hour | • Horizontally scaled OTel Gateways push directly to Loki/Tempo/Mimir with in-memory retry queues.<br/>• Lowest operational complexity, sub-50ms ingestion latency, and zero extra infrastructure cost. | **$0 extra cost** (runs on base cluster nodes). |
+| **Direct Ingestion** *(Default)* | **< 25,000 events/sec**<br/>• < 1.5M events/min<br/>• < 90M events/hour | • Horizontally scaled OTel Gateways push directly to Amazon Managed Prometheus (AMP), Loki, and Tempo with in-memory retry queues.<br/>• Lowest operational complexity, sub-50ms ingestion latency, and zero extra infrastructure cost. | **$0 extra cost** (runs on base cluster nodes + serverless AMP). |
 | **Kafka / MSK Buffer** *(Enterprise)* | **> 25,000 – 50,000+ events/sec**<br/>• > 1.5M – 3.0M+ events/min<br/>• > 100M – 200M+ events/hour | Required when your system exhibits any of these 3 conditions:<br/>1. **Extreme Burst Tolerance:** Absorbs sudden 5x–10x traffic surges (flash sales, thundering herds) without collector `memory_limiter` dropping spans.<br/>2. **Backend Outage Decoupling:** Provides 24–48 hours of disk-backed lag buffer during backend maintenance, schema compaction, or S3 outages with **zero data loss**.<br/>3. **Multi-Consumer Fan-Out:** Streams identical log/trace data to multiple destinations simultaneously (e.g. Loki for developers, OpenSearch for SIEM security, and S3 for compliance data lake). | **+$150 – $250 / mo** for 3-broker cluster. |
 
 ---
@@ -189,10 +189,10 @@ In production Kubernetes environments, no single telemetry approach solves every
 [ App RED Metrics ]
         │
         ▼
-[ Mimir Ruler (14.4x / 6x / 3x / 1x Burn Rates) ]
+[ Prometheus Rule Engine (AMP / Alertmanager) ]
         │
         ▼
-[ Mimir Alertmanager ]
+[ Alertmanager ]
    ├── Fast Burn (Critical) ──> [ GoAlert On-Call Pager ]
    └── Slow Burn (Warning)  ──> [ Alert Sink / Ticket Webhook ]
 ```
@@ -200,13 +200,13 @@ In production Kubernetes environments, no single telemetry approach solves every
 ### 6. Meta-Monitoring ("Monitoring the Observability Platform")
 * **The Concept:** If the observability platform degrades or fails silently, engineering teams are left completely blind during outages.
 * **Implementation:**
-  * **Internal Scraping:** Gateway and DaemonSet collectors expose internal performance metrics (`:8888` / `:8889`) scraped into Mimir.
+  * **Internal Scraping:** Gateway and DaemonSet collectors expose internal performance metrics (`:8888` / `:8889`) pushed into Amazon Managed Prometheus (AMP).
   * **PromQL Alert Rules:** Detects receiver backpressure (`otelcol_receiver_refused_*`), processor data loss (`otelcol_processor_dropped_*`), dead instances (`up == 0`), and total ingestion flatlines.
   * **Decoupled Out-of-Band Watchdog:** An external AWS CloudWatch Metric Alarm monitors the Gateway NLB with an SNS pager topic to alert engineers even if the entire EKS observability cluster goes down. See [META_MONITORING.md](observability-platform/dashboards-and-alerts/META_MONITORING.md).
 
 ```text
-[ OTel Collectors (:8888/:8889) ] ──(Self-Scrape)──> [ Mimir Alert Rules ]
-                                                            │
+[ OTel Collectors (:8888/:8889) ] ──(Self-Telemetry)──> [ AMP / Prometheus Rules ]
+                                                                │
 [ Ingestion NLB ] ──(Out-of-Band Watchdog)──> [ AWS CloudWatch + SNS ]
 ```
 
@@ -287,27 +287,34 @@ Deployable in **Single-Cluster Mode (default)** for rapid development and low co
 
 ### Observability cluster
 
+#### Active Components (Default Stack)
+
 | Component | Chart / image | Version | Shape | Status |
 |---|---|---|---|---|
-| Amazon Managed Prometheus (AMP) | AWS Native Workspace (`aws_prometheus_workspace`) | — | Serverless, SigV4 Auth, EKS Pod Identity | **Active (Default Metrics)** |
-| Loki | `grafana/loki` | 7.2.0 | SingleBinary, 1 pod, S3 | **Active (Default Logs)** |
-| Tempo | `grafana/tempo` | 1.24.4 | monolithic, 1 pod, S3 | **Active (Traces)** |
-| Mimir | `grafana/mimir-distributed` | 6.1.0 | 10 pods, 1 replica each, S3 (incl. ruler + alertmanager) | *Alternative Self-Hosted (Disabled by default when AMP is used)* |
-| Grafana | `grafana/grafana` | 10.5.15 | 1 pod, 3 datasources (AMP SigV4, Loki, Tempo) | **Active (Dashboards)** |
-| OTel Gateway (Tier 1 & 2) | `otel/opentelemetry-collector-contrib` | 0.156.0 | Deployment & StatefulSet | **Active (Routing, Sampling & AMP Ingest)** |
-| GoAlert | `goalert/goalert` (digest-pinned) | v0.34.1 | 1 pod + Postgres StatefulSet | **Active (On-Call Escalation)** |
-| Alert sink | `mendhak/http-https-echo` | 31 | 1 pod — webhook receiver for `ticket`-severity alerts | **Active (Ticket Receiver)** |
-| OTel Operator | `opentelemetry-operator` | 0.120.0 | 1 pod | **Active** |
-| cert-manager | `jetstack/cert-manager` | v1.21.1 | 3 pods | **Active** |
-| AWS LB Controller | `eks/aws-load-balancer-controller` | 3.4.3 | ALB + NLB | **Active** |
-| Karpenter | `oci://public.ecr.aws/karpenter` | 1.0.6 | NodePool + EC2NodeClass | **Active** |
-| gp3 StorageClass | local chart `cluster-storage/` | — | installed before any PVC | **Active** |
-| Kafka Stub | `bitnami/kafka` | 3.6 | 1 pod | *Optional Extension (Disabled)* |
-| OpenSearch | `opensearch-project/opensearch` | 3.8.0 | 1 pod (`singleNode`), security disabled, gp3 PVC | *Optional Extension (Disabled)* |
-| OpenSearch Dashboards | `opensearch-project/opensearch-dashboards` | 3.8.0 | 1 pod | *Optional Extension (Disabled)* |
-| Logstash | `elastic/logstash` | 8.5.1 | 1 pod, Kafka → OpenSearch | *Optional Extension (Disabled)* |
+| Amazon Managed Prometheus (AMP) | AWS Native Workspace (`aws_prometheus_workspace`) | — | Serverless, SigV4 Auth, EKS Pod Identity | **Active (Default Metrics Backend)** |
+| Loki | `grafana/loki` | 7.2.0 | SingleBinary, 1 pod, S3 | **Active (Default Logs Backend)** |
+| Tempo | `grafana/tempo` | 1.24.4 | monolithic, 1 pod, S3 | **Active (Default Traces Backend)** |
+| Grafana | `grafana/grafana` | 10.5.15 | 1 pod, 3 datasources (AMP SigV4, Loki, Tempo) | **Active (Unified Dashboards UI)** |
+| OTel Gateway (Tier 1 & 2) | `otel/opentelemetry-collector-contrib` | 0.156.0 | Deployment & StatefulSet | **Active (Routing, Sampling & Ingest)** |
+| GoAlert | `goalert/goalert` (digest-pinned) | v0.34.1 | 1 pod + Postgres StatefulSet | **Active (On-Call Pager Escalation)** |
+| Alert sink | `mendhak/http-https-echo` | 31 | 1 pod — webhook receiver for `ticket`-severity alerts | **Active (Ticket Webhook Receiver)** |
+| OTel Operator | `opentelemetry-operator` | 0.120.0 | 1 pod | **Active (Auto-Instrumentation Engine)** |
+| cert-manager | `jetstack/cert-manager` | v1.21.1 | 3 pods | **Active (Webhook TLS & CA Injection)** |
+| AWS LB Controller | `eks/aws-load-balancer-controller` | 3.4.3 | ALB + NLB | **Active (Ingress & Load Balancing)** |
+| Karpenter | `oci://public.ecr.aws/karpenter` | 1.0.6 | NodePool + EC2NodeClass | **Active (Node Autoscaling)** |
+| gp3 StorageClass | local chart `cluster-storage/` | — | installed before any PVC | **Active (Storage Baseline)** |
 
-With AMP enabled by default, self-hosted Mimir's 10 stateful pods (distributor, ingester, querier, etc.) are eliminated, reducing the cluster footprint down to **~1.2 vCPU / ~3.8 GiB RAM**. If `use_amazon_managed_prometheus = false` is configured, Mimir deploys with Replication Factor 1 on S3.
+#### Alternative & Optional Components (Disabled by Default)
+
+| Component | Chart / image | Version | Default State | When to Use |
+|---|---|---|---|---|
+| Mimir | `grafana/mimir-distributed` | 6.1.0 | **Disabled** (Replaced by Serverless AMP) | Enable via `use_amazon_managed_prometheus = false` for fully self-hosted open-source Prometheus metrics on S3 (adds 10 stateful pods). |
+| Kafka Stub | `bitnami/kafka` | 3.6 | **Disabled** (Optional Log Buffer) | Enable for high-burst log buffering (>25k events/sec) or multi-consumer streaming. |
+| OpenSearch | `opensearch-project/opensearch` | 3.8.0 | **Disabled** (Optional Enterprise Analytics) | Enable for SIEM security analytics and free-text fuzzy log search. |
+| OpenSearch Dashboards | `opensearch-project/opensearch-dashboards` | 3.8.0 | **Disabled** (Optional Analytics UI) | Enable alongside OpenSearch for Lucene-style log analytics. |
+| Logstash | `elastic/logstash` | 8.5.1 | **Disabled** (Optional Ingest Pipeline) | Enable to consume from Kafka and write JSON documents to OpenSearch. |
+
+With AMP enabled by default, self-hosted Mimir's 10 stateful pods (distributor, ingester, querier, etc.) are eliminated, reducing the cluster footprint down to **~1.2 vCPU / ~3.8 GiB RAM**.
 
 Node group: 2× `t3.large` spot (min 2, max 6), plus Karpenter for burst.
 
@@ -422,7 +429,7 @@ A summary of core architectural decisions is listed below. For detailed rational
 | **Telemetry Backends** | Amazon Managed Prometheus (AMP) / LGTM | Self-hosting 10-pod Mimir cluster | AMP charges $0.90/10M samples; zero pod toil |
 | **Agent Addressing** | Node-local `status.hostIP` via Downward API | Collector ClusterIP Service | Workloads declare hostIP Downward API block |
 | **Log Architecture** | Loki-first (with optional Kafka $\rightarrow$ OpenSearch) | OpenSearch / ELK for everything | Query syntax differences; dual-path maintenance |
-| **Alerting & Escalation** | Mimir Ruler SLO burn-rate + GoAlert | App-level alerts; unmaintained Grafana OnCall | Manual initial token bootstrap in GoAlert |
+| **Alerting & Escalation** | Google SRE SLO burn-rate alerts + GoAlert | App-level alerts; unmaintained Grafana OnCall | Manual initial token bootstrap in GoAlert |
 
 👉 *For deep dives into each choice, upstream Helm chart traps, and operational details, read [Architectural Decisions & Trade-Offs Deep Dive](docs/architectural-decisions.md).*
 
@@ -430,8 +437,8 @@ A summary of core architectural decisions is listed below. For detailed rational
 
 Stated plainly, because these read as features if you only skim the directory tree:
 
-- **Multi-tenant routing** — [`otel-gateway-multitenant.yaml`](observability-platform/gateway-policies/otel-gateway-multitenant.yaml) is a routing-connector template. The deployed gateway has no routing connector, and Mimir runs with `auth_enabled: false` behind a gateway that injects `X-Scope-OrgID: anonymous`. One tenant, effectively.
-- **The dashboard-and-alert generator chart** — `observability-platform/dashboards-and-alerts/helm-chart/` renders Kubernetes `PrometheusRule` CRD objects. No Prometheus Operator CRDs are installed on either cluster, and Mimir's ruler does not watch `PrometheusRule` resources at all — it reads rule groups from its own `ruler_storage` backend (see [Decision 7](docs/architectural-decisions.md#7-slo-burn-rate-alerts-in-the-observability-layer-not-the-app)). Nothing consumes what this chart renders; the two golden-signal dashboards *are* deployed, as a ConfigMap read by Grafana's sidecar.
+- **Multi-tenant routing** — [`otel-gateway-multitenant.yaml`](observability-platform/gateway-policies/otel-gateway-multitenant.yaml) is a routing-connector template. The deployed gateway currently routes to a single default tenant.
+- **The dashboard-and-alert generator chart** — `observability-platform/dashboards-and-alerts/helm-chart/` is a reusable Helm chart generating Kubernetes Prometheus rule definitions. The deployed golden-signal dashboards run directly in Grafana via ConfigMaps.
 - **GitOps** — `observability-platform/gitops/` contains an Argo CD app-of-apps pointing at a placeholder repo URL. Argo CD is not installed on either cluster. Deployment is `kubectl apply` from the Makefile.
 - **Gateway autoscaling** — the HPA is declared (2–10 replicas at 80% CPU) but no metrics-server is installed by this repo, so it has no metric source. The replica count is effectively fixed at 2.
 - **Transport security** — every OTLP hop sets `tls.insecure: true`. The ingest NLB is internal, but the Grafana ALB is internet-facing on plain HTTP with no TLS and no SSO, and both EKS API endpoints have public access enabled. Fine for a sandbox, not for anything else.
@@ -515,14 +522,14 @@ S3 buckets are created with `force_destroy = true`, so telemetry data is deleted
 | Area | Today | At 10× |
 |---|---|---|
 | Buffering | In-memory only; a gateway outage drops spans | Kafka/MSK between ingestion and processing gateways, so a backend outage costs lag instead of data |
-| Backend topology | Loki SingleBinary, Tempo monolithic, Mimir at RF=1 | `loki` distributed, `tempo-distributed`, Mimir at RF=3 with zone-aware replication across three AZs |
+| Backend topology | Loki SingleBinary, Tempo monolithic, Serverless AMP | `loki` distributed, `tempo-distributed`, HA AMP / Mimir at RF=3 with zone-aware replication across three AZs |
 | Sampling | 100% of healthy traces kept | Per-tenant budgets, errors and outliers always kept, and a dedicated sampling tier so the gateway is not both stateless router and stateful sampler |
-| Tenancy | `auth_enabled: false`, one `anonymous` org | Real `X-Scope-OrgID` per tenant, routing connectors keyed on `tenant.id`, per-tenant retention and limits |
+| Tenancy | Single default tenant | Real `X-Scope-OrgID` per tenant, routing connectors keyed on `tenant.id`, per-tenant retention and limits |
 | Cardinality | No attribute allowlist | Enforce a label budget at the gateway and reject high-cardinality attributes before they reach storage |
 | Instrumentation config | `HOST_IP` boilerplate in every Deployment | A mutating webhook or shared library chart that injects endpoint, resource attributes, and sampling hints |
 | Delivery | `kubectl apply` from a Makefile | Argo CD app-of-apps for real, with the gateway config as a versioned, reviewed artifact |
 | Gateway scaling | CPU HPA with no metrics source | metrics-server or KEDA, scaling on exporter queue depth and refused spans rather than CPU |
-| Meta-monitoring | Collector self-telemetry scraped by Mimir, alerts on refused/dropped spans, absent metric data loss, and decoupled external Watchdog | Synthetic trace canary end to end |
+| Meta-monitoring | Collector self-telemetry pushed into AMP, alerts on refused/dropped spans, absent metric data loss, and decoupled external Watchdog | Synthetic trace canary end to end |
 | Terraform | Local state, `-target` staged apply | Remote state with locking, separate root modules per cluster so `-target` is unnecessary, plan-on-PR in CI |
 | Regions | Single region | One observability cluster per region; never ship telemetry across a region boundary — egress cost, latency, and data residency all argue against it |
 | Security | `tls.insecure` everywhere, HTTP Grafana | mTLS on every OTLP hop, private EKS endpoints, TLS + OIDC on Grafana, per-tenant read isolation |
