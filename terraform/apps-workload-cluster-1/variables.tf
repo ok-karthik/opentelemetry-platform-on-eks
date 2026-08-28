@@ -17,9 +17,9 @@ variable "node_group_name" {
 }
 
 variable "node_group_instance_types" {
-  description = "EC2 instance types for the worker nodes"
+  description = "EC2 instance types for the worker nodes. m7i-flex.large (2 vCPU, 8 GiB) is Free Tier eligible in us-east-1."
   type        = list(string)
-  default     = ["t3.medium"]
+  default     = ["m7i-flex.large"]
 }
 
 variable "node_group_desired_capacity" {
@@ -43,7 +43,7 @@ variable "node_group_max_size" {
 variable "node_group_capacity_type" {
   description = "Pricing model for EKS worker nodes (SPOT or ON_DEMAND)"
   type        = string
-  default     = "SPOT"
+  default     = "ON_DEMAND"
 
   validation {
     condition     = contains(["SPOT", "ON_DEMAND"], var.node_group_capacity_type)

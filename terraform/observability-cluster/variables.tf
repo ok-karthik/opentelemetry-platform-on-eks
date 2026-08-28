@@ -17,9 +17,9 @@ variable "node_group_name" {
 }
 
 variable "node_group_instance_types" {
-  description = "EC2 instance types for the fixed managed node group. Karpenter handles burst beyond this baseline. t3.large is the smallest type the trimmed LGTM stack fits on with headroom."
+  description = "EC2 instance types for the fixed managed node group. m7i-flex.large (2 vCPU, 8 GiB) matches t3.large but is Free Tier eligible in us-east-1."
   type        = list(string)
-  default     = ["t3.large"]
+  default     = ["m7i-flex.large"]
 }
 
 variable "node_group_desired_capacity" {
@@ -43,7 +43,7 @@ variable "node_group_max_size" {
 variable "node_group_capacity_type" {
   description = "Pricing model for EKS worker nodes (SPOT or ON_DEMAND)"
   type        = string
-  default     = "SPOT"
+  default     = "ON_DEMAND"
 
   validation {
     condition     = contains(["SPOT", "ON_DEMAND"], var.node_group_capacity_type)

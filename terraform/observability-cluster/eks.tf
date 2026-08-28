@@ -125,6 +125,20 @@ module "eks" {
   # 5. Enable access entries (Modern EKS auth)
   enable_cluster_creator_admin_permissions = true
 
+  access_entries = {
+    console_user = {
+      principal_arn = "arn:aws:iam::174160028427:user/ok"
+      policy_associations = {
+        admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = {
+            type = "cluster"
+          }
+        }
+      }
+    }
+  }
+
   # 6. Allow OTel traffic from peered Apps VPC
   node_security_group_additional_rules = {
     ingress_peering_otel = {
