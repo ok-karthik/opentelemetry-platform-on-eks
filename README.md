@@ -178,7 +178,7 @@ flowchart LR
 | [`observability-platform/gateway-policies/`](observability-platform/gateway-policies/) | Multi-tenant routing and tail-sampling budgeting policy templates | *Template* |
 | [`observability-platform/dashboards-and-alerts/`](observability-platform/dashboards-and-alerts/) | Golden signals dashboards, PrometheusRule generator chart, and meta-monitoring | *Deployed & Template* |
 | [`observability-platform/gitops/`](observability-platform/gitops/) | Argo CD App-of-Apps and regional cluster baseline manifests | *Template* |
-| [`docs/`](docs/) | Deep-dive architectural decisions, multi-tenancy guide, and chart traps | *Documentation* |
+| [`docs/`](docs/) | Deep-dive architectural decisions, multi-tenancy, and future roadmap | *Documentation* |
 | [`.agents/AGENTS.md`](.agents/AGENTS.md) | Agent operational workflows, mental model, and failure traps | *Documentation* |
 
 <details>
@@ -188,6 +188,7 @@ flowchart LR
 docs/                               # Architectural decisions & traps
   architectural-decisions.md        # 7 core decisions & scale patterns
   multi-tenancy.md                  # S3 isolation, Grafana Orgs, alerts
+  future-roadmap.md                 # AIOps, GenAI APM, IDP, & GitOps
 workloads/                          # App-team-owned microservices
   apps-src/
     golang-app/                     # Go SDK programmatic bootstrap
