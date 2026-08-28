@@ -80,9 +80,8 @@ INFRA_TARGETS_SHARED := \
   -target='module.observability_cluster.aws_iam_policy.aws_lb_controller' \
   -target='module.observability_cluster.aws_iam_role.aws_lb_controller' \
   -target='module.observability_cluster.aws_iam_role_policy_attachment.aws_lb_controller' \
-  -target='module.observability_cluster.aws_eks_pod_identity_association.aws_lb_controller' \
-  -target='aws_ecr_repository.golang_product_service' \
-  -target='aws_ecr_repository.python_product_info_service'
+  -target='module.observability_cluster.aws_eks_pod_identity_association.aws_lb_controller'
+
 
 INFRA_TARGETS_MULTI := \
   $(INFRA_TARGETS_SHARED) \
@@ -194,22 +193,6 @@ docker-build-push: ## Build and push Go and Python app images to Docker Hub (mak
 	docker push $(DOCKERHUB_USER_NAME)/python-product-info-service:latest
 	@echo "Successfully pushed images to Docker Hub."
 
-ecr-build-push: ## Build and push Go + Python app container images to Amazon ECR
-	@echo "Logging into Amazon ECR in $(AWS_REGION)..."
-	$(eval ACCOUNT_ID := $(if $(AWS_ACCOUNT_ID),$(AWS_ACCOUNT_ID),$(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)))
-	@if [ -z "$(ACCOUNT_ID)" ]; then \
-		echo "ERROR: Could not retrieve AWS Account ID. Please authenticate with AWS first."; \
-		exit 1; \
-	fi; \
-	aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com
-	@echo "Building and pushing Go Product Service..."
-	docker build -t $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/golang-product-service:latest apps-workload-cluster-1/apps-src/golang-app
-	docker push $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/golang-product-service:latest
-	@echo "Building and pushing Python Product Info Service..."
-	docker build -t $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/python-product-info-service:latest apps-workload-cluster-1/apps-src/python-app
-	docker push $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/python-product-info-service:latest
-	@echo "Successfully pushed images to ECR."
-
 k8s-deploy-apps:
 	@echo "Waiting for Cert-Manager in $(TARGET_APPS_CLUSTER)..."
 	kubectl --context $(TARGET_APPS_CLUSTER) wait --for=condition=Available --timeout=300s deployment/cert-manager-webhook -n cert-manager
@@ -217,15 +200,8 @@ k8s-deploy-apps:
 	kubectl --context $(TARGET_APPS_CLUSTER) wait --for=condition=Available --timeout=300s deployment/opentelemetry-operator -n opentelemetry-operator-system
 	@echo "Applying Namespace in $(TARGET_APPS_CLUSTER)..."
 	kubectl --context $(TARGET_APPS_CLUSTER) create namespace monitoring --dry-run=client -o yaml | kubectl --context $(TARGET_APPS_CLUSTER) apply -f -
-	@echo "Checking AWS Account ID..."
-	$(eval ACCOUNT_ID := $(if $(AWS_ACCOUNT_ID),$(AWS_ACCOUNT_ID),$(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)))
-	@if [ -z "$(ACCOUNT_ID)" ]; then \
-		echo "ERROR: Could not retrieve AWS Account ID. Please authenticate with AWS first."; \
-		exit 1; \
-	fi; \
-	echo "Using AWS Account ID: $(ACCOUNT_ID)"; \
 	$(eval DOCKER_USER := $(strip $(DOCKERHUB_USER_NAME)))
-	$(eval REGISTRY := $(if $(DOCKER_USER),$(DOCKER_USER),$(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com))
+	$(eval REGISTRY := $(if $(DOCKER_USER),$(DOCKER_USER),ok-karthik))
 	@echo "Using Image Registry / Prefix: $(REGISTRY)"; \
 	if [ "$(SINGLE_CLUSTER)" = "true" ]; then \
 		echo "Single-cluster mode: Routing OTel telemetry directly via in-cluster DNS..."; \

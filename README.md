@@ -378,7 +378,6 @@ terraform/
   main.tf                           # multi-cluster entrypoint (both clusters + VPC peering)
   single-cluster/                   # DEPLOYED  fast single-cluster entrypoint (reusable module)
     main.tf
-  ecr.tf                            # container repositories (Go and Python images)
   apps-workload-cluster-1/          # EKS, VPC, cert-manager/Operator/LB controller
   observability-cluster/            # EKS, VPC, S3, AMP, IAM, Pod Identity, full LGTM stack
     amp.tf                          # Amazon Managed Prometheus workspace & Pod Identity
