@@ -113,7 +113,7 @@ In production Kubernetes environments, no single telemetry approach solves every
 3. **Level 3: Programmatic SDK Custom Instrumentation (OTel SDK)** — Hand-written Go and Python telemetry for business metrics (e.g. cart checkout value) and custom span attributes.
 4. **Level 4: Commercial Proprietary Instrumentation (Datadog / Dynatrace)** — Closed-source proprietary agents (effective out of the box, but high cost and severe vendor lock-in).
 
-👉 **[Read the Complete Guide: 4 Levels of Instrumentation, eBPF Blind Spots & Correlation](observability-platform/01-app-onboarding/instrumentation-tiers-and-ebpf.md)**
+👉 **[Read the Complete Guide: 4 Levels of Instrumentation, eBPF Blind Spots & Correlation](observability-platform/onboarding/instrumentation-tiers-and-ebpf.md)**
 
 #### ⚖️ Auto-Instrumentation Blind Spots vs. eBPF Kernel Visibility:
 
@@ -202,7 +202,7 @@ In production Kubernetes environments, no single telemetry approach solves every
 * **Implementation:**
   * **Internal Scraping:** Gateway and DaemonSet collectors expose internal performance metrics (`:8888` / `:8889`) scraped into Mimir.
   * **PromQL Alert Rules:** Detects receiver backpressure (`otelcol_receiver_refused_*`), processor data loss (`otelcol_processor_dropped_*`), dead instances (`up == 0`), and total ingestion flatlines.
-  * **Decoupled Out-of-Band Watchdog:** An external AWS CloudWatch Metric Alarm monitors the Gateway NLB with an SNS pager topic to alert engineers even if the entire EKS observability cluster goes down. See [META_MONITORING.md](observability-platform/03-dashboards-and-alerts/META_MONITORING.md).
+  * **Decoupled Out-of-Band Watchdog:** An external AWS CloudWatch Metric Alarm monitors the Gateway NLB with an SNS pager topic to alert engineers even if the entire EKS observability cluster goes down. See [META_MONITORING.md](observability-platform/dashboards-and-alerts/META_MONITORING.md).
 
 ```text
 [ OTel Collectors (:8888/:8889) ] ──(Self-Scrape)──> [ Mimir Alert Rules ]
@@ -321,11 +321,14 @@ Five S3 buckets (Loki, Tempo, Mimir blocks/ruler/alertmanager). The alertmanager
 | Path | Contents |
 |---|---|
 | `docs/` | Deep-dive architectural decisions, trade-offs, and chart trap references |
-| `terraform/` | Both clusters, VPC peering, AWS external Meta-Monitoring, S3, IAM |
+| `terraform/` | Multi-cluster and single-cluster EKS, VPC, AMP, S3, IAM |
 | `terraform/observability-cluster/helm-values/` | Loki / Tempo / Mimir / Grafana values, with the reasoning inline |
 | `apps-workload-cluster-1/` | Demo services, their manifests, the DaemonSet collector |
 | `observability-platform/k8s-manifests/` | Gateway, NLB, Grafana ingress, dashboards — the deployed platform |
-| `observability-platform/01-…04-…/` | Onboarding contract, policy templates, dashboard generator, GitOps baseline |
+| `observability-platform/onboarding/` | Onboarding contract, 4 levels of instrumentation, multi-runtime CR |
+| `observability-platform/gateway-policies/` | Multi-tenant routing and tail-sampling budgeting policy templates |
+| `observability-platform/dashboards-and-alerts/` | Golden signals dashboards, PrometheusRule generator chart, META_MONITORING.md |
+| `observability-platform/gitops/` | Argo CD App-of-Apps and regional workload cluster baseline aliases |
 | `.agents/AGENTS.md` | Long-form conventions and chart traps |
 | `architecture-decisions-and-tradeoffs.md` | Five collector topology patterns compared, with diagrams |
 
@@ -346,27 +349,40 @@ apps-workload-cluster-1/            # app-team-owned; reason about it as its own
 
 observability-platform/             # platform-team-owned; the product surface
   k8s-manifests/                    # DEPLOYED  everything the Makefile applies
-    otel-collector-gateway.yaml     #   gateway CR: filters, OTTL, tail sampling, exporters
+    otel-collector-gateway.yaml     #   gateway CR: filters, OTTL, tail sampling, AMP / LGTM exporters
     svc-nlb-otel-gateway.yaml       #   internal NLB, instance target type
     grafana-ingress.yaml            #   internet-facing ALB, HTTP only
     grafana-dashboards-configmap.yaml
-    mimir-ruler-rules-configmap.yaml #  SLO burn-rate PrometheusRule-style groups, mounted into the ruler
+    mimir-ruler-rules-configmap.yaml #  SLO burn-rate PrometheusRule-style groups, mounted into ruler
     alert-sink.yaml                 #   webhook echo receiver for ticket-severity alerts
     goalert.yaml                    #   on-call/escalation for page-severity alerts, + its Postgres
     optional-extensions/            #   TEMPLATE  optional enterprise log buffer & OpenSearch templates
       kafka-stub.yaml               #     in-cluster Kafka log buffer stub
       opensearch-index-bootstrap-job.yaml # index template + ISM policy for the ELK path
-  01-app-onboarding/                # TEMPLATE  contract + per-language values and CRs
-  02-gateway-configuration/         # TEMPLATE  tenant routing, real sampling budget
-  03-dashboards-and-alerts/
-    golden-signals/                 # DEPLOYED  via the ConfigMap above
-    helm-chart/                     # TEMPLATE  needs Prometheus Operator CRDs
-  04-cluster-gitops-baseline/       # TEMPLATE  Argo CD app-of-apps; Argo CD not installed
+  onboarding/                       # TEMPLATE  contract, 4 instrumentation levels, multi-runtime CR
+    service-onboarding-contract.md  #   contract for service identity, SLOs, and Argo CD values
+    instrumentation-tiers-and-ebpf.md # 4 levels of instrumentation, eBPF blind spots & correlation
+    instrumentation-manifests/      #   all-runtimes-instrumentation.yaml, go-sdk-template.md
+  gateway-policies/                 # TEMPLATE  tenant routing, real sampling budget templates
+    otel-gateway-multitenant.yaml
+    otel-gateway-tail-sampling.yaml
+  dashboards-and-alerts/
+    golden-signals/                 # DEPLOYED  raw JSONs rendered via the ConfigMap above
+    helm-chart/                     # TEMPLATE  self-service PrometheusRule/Dashboard chart
+    META_MONITORING.md              #   "Watch the watcher" health alerting guide
+  gitops/                           # TEMPLATE  Argo CD app-of-apps & regional gateway baseline
+    gitops-app-of-apps/             #   root-application.yaml, appproject-platform.yaml, child apps
+    workload-cluster-baseline/      #   otel-gateway-regional-externalname.yaml
 
 terraform/
-  main.tf                           # both cluster modules + VPC peering and routes
-  apps-workload-cluster-1/          # EKS, VPC, ECR, cert-manager/Operator/LB controller
-  observability-cluster/            # EKS, VPC, S3, IAM, Pod Identity, full LGTM stack
+  main.tf                           # multi-cluster entrypoint (both clusters + VPC peering)
+  single-cluster/                   # DEPLOYED  fast single-cluster entrypoint (reusable module)
+    main.tf
+  ecr.tf                            # container repositories (Go and Python images)
+  apps-workload-cluster-1/          # EKS, VPC, cert-manager/Operator/LB controller
+  observability-cluster/            # EKS, VPC, S3, AMP, IAM, Pod Identity, full LGTM stack
+    amp.tf                          # Amazon Managed Prometheus workspace & Pod Identity
+    network.tf                      # VPC, subnets, route tables, Free S3 Gateway VPC Endpoint
     helm-values/                    # Loki/Tempo/Mimir/Grafana .tftpl, reasoning inline
     cluster-storage/                # gp3 StorageClass — installs before any PVC
     karpenter-provisioner/          # NodePool + EC2NodeClass
@@ -387,7 +403,7 @@ A summary of core architectural decisions is listed below. For detailed rational
 | **Collector Topology** | DaemonSet agent + central two-tier gateway | Sidecar-per-pod; agent-only | Additional network hop; fleet to operate |
 | **Sampling Strategy** | Tail-based sampling at Tier 2 gateway | Head sampling in the SDK | Stateful gateway; trace-ID affinity required |
 | **Cluster Layout** | Dedicated observability EKS cluster in peered VPC | Single cluster, separate namespace | ~$73/mo extra control plane; VPC peering |
-| **Telemetry Backends** | Self-hosted LGTM (S3-backed) | AMP + AMG or commercial SaaS | Managing four stateful open-source systems |
+| **Telemetry Backends** | Amazon Managed Prometheus (AMP) / LGTM | Self-hosting 10-pod Mimir cluster | AMP charges $0.90/10M samples; zero pod toil |
 | **Agent Addressing** | Node-local `status.hostIP` via Downward API | Collector ClusterIP Service | Workloads declare hostIP Downward API block |
 | **Log Architecture** | Loki-first (with optional Kafka $\rightarrow$ OpenSearch) | OpenSearch / ELK for everything | Query syntax differences; dual-path maintenance |
 | **Alerting & Escalation** | Mimir Ruler SLO burn-rate + GoAlert | App-level alerts; unmaintained Grafana OnCall | Manual initial token bootstrap in GoAlert |
@@ -398,9 +414,9 @@ A summary of core architectural decisions is listed below. For detailed rational
 
 Stated plainly, because these read as features if you only skim the directory tree:
 
-- **Multi-tenant routing** — [`otel-gateway-multitenant.yaml`](observability-platform/02-gateway-configuration/otel-gateway-multitenant.yaml) is a routing-connector template. The deployed gateway has no routing connector, and Mimir runs with `auth_enabled: false` behind a gateway that injects `X-Scope-OrgID: anonymous`. One tenant, effectively.
-- **The dashboard-and-alert generator chart** — `03-dashboards-and-alerts/helm-chart/` renders Kubernetes `PrometheusRule` CRD objects. No Prometheus Operator CRDs are installed on either cluster, and Mimir's ruler does not watch `PrometheusRule` resources at all — it reads rule groups from its own `ruler_storage` backend (see [Decision 7](docs/architectural-decisions.md#7-slo-burn-rate-alerts-in-the-observability-layer-not-the-app)). Nothing consumes what this chart renders; the two golden-signal dashboards *are* deployed, as a ConfigMap read by Grafana's sidecar.
-- **GitOps** — `04-cluster-gitops-baseline/` contains an Argo CD app-of-apps pointing at a placeholder repo URL. Argo CD is not installed on either cluster. Deployment is `kubectl apply` from the Makefile.
+- **Multi-tenant routing** — [`otel-gateway-multitenant.yaml`](observability-platform/gateway-policies/otel-gateway-multitenant.yaml) is a routing-connector template. The deployed gateway has no routing connector, and Mimir runs with `auth_enabled: false` behind a gateway that injects `X-Scope-OrgID: anonymous`. One tenant, effectively.
+- **The dashboard-and-alert generator chart** — `observability-platform/dashboards-and-alerts/helm-chart/` renders Kubernetes `PrometheusRule` CRD objects. No Prometheus Operator CRDs are installed on either cluster, and Mimir's ruler does not watch `PrometheusRule` resources at all — it reads rule groups from its own `ruler_storage` backend (see [Decision 7](docs/architectural-decisions.md#7-slo-burn-rate-alerts-in-the-observability-layer-not-the-app)). Nothing consumes what this chart renders; the two golden-signal dashboards *are* deployed, as a ConfigMap read by Grafana's sidecar.
+- **GitOps** — `observability-platform/gitops/` contains an Argo CD app-of-apps pointing at a placeholder repo URL. Argo CD is not installed on either cluster. Deployment is `kubectl apply` from the Makefile.
 - **Gateway autoscaling** — the HPA is declared (2–10 replicas at 80% CPU) but no metrics-server is installed by this repo, so it has no metric source. The replica count is effectively fixed at 2.
 - **Transport security** — every OTLP hop sets `tls.insecure: true`. The ingest NLB is internal, but the Grafana ALB is internet-facing on plain HTTP with no TLS and no SSO, and both EKS API endpoints have public access enabled. Fine for a sandbox, not for anything else.
 - **Terraform state** — local only. No S3 backend, no locking, no CI plan. GitHub Actions builds and pushes images; it does not validate Terraform, render Helm, or lint collector configs.

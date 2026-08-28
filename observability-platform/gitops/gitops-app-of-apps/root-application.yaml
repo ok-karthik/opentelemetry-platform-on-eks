@@ -18,7 +18,7 @@ spec:
   source:
     repoURL: https://github.com/ok-karthik/opentelemetry-platform-on-eks.git
     targetRevision: main
-    path: observability-platform/04-cluster-gitops-baseline/gitops-app-of-apps/apps
+    path: observability-platform/gitops/gitops-app-of-apps/apps
     directory:
       recurse: true
   destination:

@@ -143,7 +143,7 @@ This document details the architectural rationale, trade-offs, and design choice
 
 **What it bought:**
 * **Zero Worker Node Overhead:** The controller, Redis caching, and UI run in AWS-managed control plane infrastructure outside the cluster with 0 vCPU / 0 MB overhead on worker nodes.
-* **100% Declarative Compatibility:** Cluster only contains standard Kubernetes CRDs (`Application`, `AppProject`). The `root-application.yaml` and child app manifests in `observability-platform/04-cluster-gitops-baseline/gitops-app-of-apps/` work out-of-the-box.
+* **100% Declarative Compatibility:** Cluster only contains standard Kubernetes CRDs (`Application`, `AppProject`). The `root-application.yaml` and child app manifests in `observability-platform/gitops/gitops-app-of-apps/` work out-of-the-box.
 * **Automated Lifecycle & IAM Integration:** AWS manages high availability, patching, and backups, while integrating natively with IAM Identity Center and EKS Access Entries.
 
 

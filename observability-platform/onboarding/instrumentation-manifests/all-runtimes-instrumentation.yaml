@@ -1,0 +1,44 @@
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: default-instrumentation
+  namespace: default
+spec:
+  # ==================== Exporter Configuration ====================
+  # Tells injected OTel SDKs where to send telemetry.
+  # Workloads target their node-local collector via Downward API (status.hostIP:4317).
+  exporter:
+    endpoint: http://otel-collector-agent-collector.monitoring.svc.cluster.local:4317
+
+  # ==================== Propagator Configuration ====================
+  propagators:
+    - tracecontext  # W3C traceparent standard
+    - baggage       # W3C baggage standard
+    - b3            # Legacy Zipkin standard
+
+  # ==================== Language Configurations ====================
+  python:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:latest
+    env:
+      - name: OTEL_LOGS_EXPORTER
+        value: "otlp"
+      - name: OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED
+        value: "true"
+
+  java:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:latest
+    env:
+      - name: OTEL_LOGS_EXPORTER
+        value: "otlp"
+
+  nodejs:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-nodejs:latest
+    env:
+      - name: OTEL_LOGS_EXPORTER
+        value: "otlp"
+
+  dotnet:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-dotnet:latest
+    env:
+      - name: OTEL_LOGS_EXPORTER
+        value: "otlp"

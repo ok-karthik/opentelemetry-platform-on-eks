@@ -39,7 +39,7 @@ App Repo Values (GitHub)
 2. Click **Create capabilities** and select **Argo CD** (`control-plane-argocd`).
 3. Apply the root application:
    ```bash
-   kubectl apply -f observability-platform/04-cluster-gitops-baseline/gitops-app-of-apps/root-application.yaml
+   kubectl apply -f observability-platform/gitops/gitops-app-of-apps/root-application.yaml
    ```
 
 ---

@@ -42,9 +42,7 @@ What the tree does not say, and this file is responsible for:
   one repository today, but reason about them as three — app-team-owned,
   platform-owned, and infrastructure. The ownership model above is what decides
   where a change belongs.
-- The `01-`…`04-` prefixes under `observability-platform/` are the onboarding
-  order (contract, then gateway policy, then dashboards, then GitOps), not
-  arbitrary numbering.
+- The directories under `observability-platform/` (`onboarding/`, `gateway-policies/`, `dashboards-and-alerts/`, `gitops/`) reflect the logical lifecycle (contract, then gateway policy, then dashboards, then GitOps).
 - Several of those directories are templates that nothing installs. Check the
   README's `DEPLOYED`/`TEMPLATE` markers before describing anything there as
   running.
@@ -147,7 +145,7 @@ Important: if a processor is defined, verify it is also wired into the relevant 
 
 ### Routing and Multitenancy
 
-`observability-platform/02-gateway-configuration/otel-gateway-multitenant.yaml` demonstrates tenant-aware routing.
+`observability-platform/gateway-policies/otel-gateway-multitenant.yaml` demonstrates tenant-aware routing.
 
 The pattern is:
 
@@ -165,7 +163,7 @@ When extending this, keep app-team inputs simple. App repos should declare servi
 
 ### Telemetry Budgeting
 
-`observability-platform/02-gateway-configuration/otel-gateway-tail-sampling.yaml` shows gateway-level cost control.
+`observability-platform/gateway-policies/otel-gateway-tail-sampling.yaml` shows gateway-level cost control.
 
 Use tail sampling to:
 
@@ -178,9 +176,9 @@ At enterprise scale, consider an ingestion gateway plus Kafka/MSK plus processin
 
 ### Dashboards and Alerts
 
-`observability-platform/03-dashboards-and-alerts/golden-signals/` contains baseline Grafana dashboards for service golden signals.
+`observability-platform/dashboards-and-alerts/golden-signals/` contains baseline Grafana dashboards for service golden signals.
 
-`observability-platform/03-dashboards-and-alerts/helm-chart/` demonstrates a GitOps model where:
+`observability-platform/dashboards-and-alerts/helm-chart/` demonstrates a GitOps model where:
 
 - Platform owns reusable Helm templates.
 - App teams own a small values file containing service name, team, Slack channel, SLOs, and thresholds.
@@ -194,7 +192,7 @@ The OpenTelemetry platform must monitor itself.
 - Collectors (gateways and agents) expose metrics on `:8888` and `:8889`.
 - Mimir Ruler evaluates alerts for backpressure (`otelcol_receiver_refused_*`), data loss (`otelcol_processor_dropped_*`), and silence/down instances.
 - A decoupled Watchdog (e.g., CloudWatch Alarm over the NLB) alerts on total cluster failures.
-See `observability-platform/03-dashboards-and-alerts/META_MONITORING.md`.
+See `observability-platform/dashboards-and-alerts/META_MONITORING.md`.
 
 ## Scale Architecture
 
