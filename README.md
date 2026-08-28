@@ -337,7 +337,7 @@ Node group: 2× `t3.medium` spot (min 1, max 4). No Karpenter — two app pods a
 
 | Path | Contents |
 |---|---|
-| `docs/` | Deep-dive architectural decisions, trade-offs, and chart trap references |
+| `docs/` | Deep-dive architectural decisions, multi-tenancy, and chart trap references |
 | `terraform/` | Multi-cluster and single-cluster EKS, VPC, AMP, S3, IAM |
 | `terraform/observability-cluster/helm-values/` | Loki / Tempo / Mimir / Grafana values, with the reasoning inline |
 | `workloads/` | Demo services, their manifests, the DaemonSet collector |
@@ -354,6 +354,7 @@ Node group: 2× `t3.medium` spot (min 1, max 4). No Karpenter — two app pods a
 ```text
 docs/                               # deep-dive architectural decisions, trade-offs, and chart traps
   architectural-decisions.md
+  multi-tenancy.md                  # multi-tenancy access control, S3 isolation, Grafana Orgs, alerting
 workloads/                          # app-team-owned; reason about it as its own repo
   apps-src/
     golang-app/                     # Go service, programmatic OTel SDK (telemetry.go)
