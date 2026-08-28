@@ -5,6 +5,7 @@ This directory consolidates the onboarding process, the contract between app and
 ## Contents
 
 - [service-onboarding-contract.md](./service-onboarding-contract.md): The app-team/platform-team contract for metadata, SLOs, routing, dashboards, and alerts.
+- [instrumentation-tiers-and-ebpf.md](./instrumentation-tiers-and-ebpf.md): Deep dive into the 4 levels of instrumentation (eBPF, auto-instrumentation, SDK, commercial tools), blind spots, and how to correlate them.
 - **`values-examples/`**: Example values that an application team would keep in its own workload repository.
 - **`instrumentation-manifests/`**: Language-specific OTel Operator templates and Go SDK patterns.
 

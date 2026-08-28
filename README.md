@@ -104,10 +104,30 @@ Architecture Choice:      │ Direct OTel to LGTM    │            │ OTel ─
 
 This platform implements production-grade observability patterns engineered for reliability, cost efficiency, and scale:
 
-### 1. Zero-Code Kernel Instrumentation with eBPF ([OBI](https://opentelemetry.io/docs/zero-code/obi/))
-* **The Concept:** Traditional instrumentation requires application code changes or language-specific SDKs. [eBPF (Extended Berkeley Packet Filter)](https://ebpf.io/) runs sandboxed programs inside the Linux kernel to observe network traffic and system calls non-invasively.
-* **How It Works:** A lightweight `obi-agent` DaemonSet attaches eBPF probes in the Linux kernel to automatically extract HTTP RED (Rate, Errors, Duration) metrics and trace context from compiled applications (Go, C++, Rust, Node.js, Java) with **zero code modifications**.
-* **Data Flow:** OBI forwards raw kernel-captured telemetry over local loopback (`127.0.0.1:4317`) to the node's local OpenTelemetry Collector, which enriches it with Kubernetes metadata (`k8s.pod.name`, `k8s.namespace.name`) before shipping to the regional gateway.
+### 1. The 4 Levels of Telemetry Instrumentation & eBPF Kernel Visibility
+
+In production Kubernetes environments, no single telemetry approach solves every problem. This platform structures observability across **4 distinct levels**:
+
+1. **Level 1: Kernel & Network Baseline (eBPF)** — Non-invasive Linux kernel probes capturing 100% of network traffic, TCP drops, CFS CPU throttling, and kernel crashes without touching application pods.
+2. **Level 2: Runtime Auto-Instrumentation (OTel Operator)** — Bytecode/agent injection into Python, Java, and Node.js for zero-code route handlers, SQL queries, and automatic `trace_id` injection into logs.
+3. **Level 3: Programmatic SDK Custom Instrumentation (OTel SDK)** — Hand-written Go and Python telemetry for business metrics (e.g. cart checkout value) and custom span attributes.
+4. **Level 4: Commercial Proprietary Instrumentation (Datadog / Dynatrace)** — Closed-source proprietary agents (effective out of the box, but high cost and severe vendor lock-in).
+
+👉 **[Read the Complete Guide: 4 Levels of Instrumentation, eBPF Blind Spots & Correlation](observability-platform/01-app-onboarding/instrumentation-tiers-and-ebpf.md)**
+
+#### ⚖️ Auto-Instrumentation Blind Spots vs. eBPF Kernel Visibility:
+
+| Telemetry Dimension | Auto-Instrumentation (Application Runtime) | eBPF (Linux Kernel Space) |
+|---|:---:|:---:|
+| **Instant Pod Deaths (`OOMKilled` Exit 137)** | ❌ **Blind** (Runtime dies in 0ms; cannot emit traces or logs) | ✅ **Catches `oom_kill_process()` in the Linux kernel** |
+| **TCP Drops & Cross-AZ Packet Loss** | ❌ **Blind** (Only measures total wall-clock duration) | ✅ **Detects TCP retransmits and socket backlog drops** |
+| **Uninstrumented & Legacy Binaries** | ❌ **Unsupported** (Cannot instrument Envoy, CoreDNS, Nginx) | ✅ **100% Coverage across every process on the node** |
+| **CPU CFS Quota Throttling** | ❌ **Blind** (Mistakes throttling pause for slow app code) | ✅ **Measures run-queue scheduling delay (`runqlat`)** |
+| **Application Exceptions & Stack Traces** | ✅ **Full Stack Trace (file, line number, `KeyError`)** | ❌ **Blind** (Only sees generic HTTP 500 response code) |
+| **Database & ORM Queries** | ✅ **Exact Query (`SELECT * FROM products WHERE id = ?`)** | ❌ **Blind** (Encrypted TLS stream or raw TCP bytes) |
+| **Log-to-Trace Clickable Linking** | ✅ **Injects `trace_id` into Python/Java log lines** | ❌ **Blind** (Cannot alter container log files) |
+
+* **Data Flow:** The lightweight `obi-agent` DaemonSet attaches eBPF probes in the Linux kernel to automatically extract HTTP RED metrics over loopback (`127.0.0.1:4317`) to the node's local OpenTelemetry Collector, which enriches it with Kubernetes metadata (`k8s.pod.name`, `k8s.namespace.name`) before forwarding to the central gateway.
 
 ```text
 [ Application Pod (Unmodified) ]
