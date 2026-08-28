@@ -1,32 +1,48 @@
 # Agent Instructions and Project Context
 
-This file gives AI agents the project mental model, repo structure, and working rules for this OpenTelemetry observability platform demo.
+This file gives AI agents the project mental model, repo structure, operational workflows, and working rules for this OpenTelemetry observability platform. It is the **single canonical source of truth** for repository conventions and technical architecture.
 
-## Project Model
+## Project Model & Domain Layout
 
 Treat this repository as a reference implementation for an internal observability product on Amazon EKS.
 
-Although the directories currently live in one repository, reason about them as if they could be separate Git repositories:
+Although the directories currently live in one repository, reason about them as four distinct domains:
 
-- `observability-platform/`: platform-owned observability product templates, gateway policy, routing, dashboards, alerts, and cost controls.
-- `workloads/`: application-team-owned workload repository that consumes the observability platform.
-- `terraform/`: infrastructure provisioning for the workload EKS cluster and the dedicated observability EKS cluster.
+| Domain | Path | Ownership & Purpose |
+|---|---|---|
+| **Workloads** | `workloads/` | App-team-owned microservices (Go SDK & Python Operator), their Kubernetes manifests, and the per-node DaemonSet collector. |
+| **Platform** | `observability-platform/` | Platform-team-owned product: onboarding contracts, gateway policy, dashboards, SLO alerts, and GitOps baselines. |
+| **Infrastructure** | `terraform/` | Platform infrastructure: EKS clusters, VPCs, AMP workspaces, S3 storage, IAM Pod Identity, and Helm releases. |
+| **Architecture** | `docs/` | Deep-dive architectural decisions, trade-offs, and chart trap references. |
+
+### Topology Modes: Single-Cluster vs Multi-Cluster
+
+The platform can be provisioned in two distinct deployment modes controlled via the `SINGLE_CLUSTER` Makefile variable:
+
+1. **Single-Cluster Mode (`SINGLE_CLUSTER=true`, DEFAULT):**
+   - Provisions a single EKS cluster (`terraform/single-cluster/`) running both workloads and the observability stack.
+   - Slashes costs from ~$300/mo to **~$150/mo** (1× control plane, 1× NAT gateway, serverless AMP metrics).
+   - Fast to deploy and iterate on without cross-VPC peering latency.
+2. **Multi-Cluster Peered Mode (`SINGLE_CLUSTER=false`):**
+   - Provisions two separate EKS clusters (`terraform/observability-cluster/` and `terraform/apps-workload-cluster-1/`) across peered VPCs (`10.0.0.0/16` and `10.1.0.0/16`).
+   - Demonstrates true multi-cluster regional ingestion over an internal AWS Network Load Balancer (NLB).
 
 The core telemetry flow is:
 
 ```text
-Application container
-  -> OpenTelemetry SDK or auto-instrumentation
-  -> workload-cluster OTel Collector DaemonSet
-  -> central observability-cluster OTel Gateway
-  -> observability backend such as LGTM, Tempo, Loki, Mimir, Datadog, or another vendor
+Application container (workload cluster / namespace)
+  -> OpenTelemetry SDK, Operator auto-instrumentation, or OBI eBPF
+  -> Node-local OTel Collector DaemonSet (status.hostIP Downward API)
+  -> Central Observability Gateway (Tier 1 Router -> Tier 2 Processor)
+  -> Backends: Amazon Managed Prometheus (AMP), S3-backed Loki & Tempo, or optional Kafka/OpenSearch
+  -> Visualization & Escalation: Grafana (SigV4) & GoAlert pager
 ```
 
 For platform-engineering discussions, use this ownership model:
 
-- App teams own service code, service identity, instrumentation quality, SLO intent, alert thresholds, and dashboard values.
-- Platform teams own collector baselines, gateway policy, backend integrations, sampling defaults, routing, tenant isolation, templates, and GitOps onboarding patterns.
-- Security and FinOps teams rely on centralized controls for secrets, retention, tenant separation, routing, noisy telemetry, and telemetry cost.
+- **App teams** own service code, service identity, instrumentation quality, SLO intent, alert thresholds, and dashboard values.
+- **Platform teams** own collector baselines, gateway policy, backend integrations, sampling defaults, routing, tenant isolation, templates, and GitOps onboarding patterns.
+- **Security and FinOps teams** rely on centralized controls for secrets, retention, tenant separation, routing, noisy telemetry, and telemetry cost.
 
 ## Current Repository Structure
 
@@ -38,23 +54,11 @@ second copy drifts, and this file is the one agents read most.
 
 What the tree does not say, and this file is responsible for:
 
-- `workloads/`, `observability-platform/`, and `terraform/` are
-  one repository today, but reason about them as three — app-team-owned,
-  platform-owned, and infrastructure. The ownership model above is what decides
-  where a change belongs.
 - The directories under `observability-platform/` (`onboarding/`, `gateway-policies/`, `dashboards-and-alerts/`, `gitops/`) reflect the logical lifecycle (contract, then gateway policy, then dashboards, then GitOps).
-- Several of those directories are templates that nothing installs. Check the
-  README's `DEPLOYED`/`TEMPLATE` markers before describing anything there as
-  running.
+- Several of those directories are templates that nothing installs. Check the README's `DEPLOYED`/`TEMPLATE` markers before describing anything there as running.
+- `CLAUDE.md` at the repository root is a minimal pointer pointing directly to this file.
 
-`CLAUDE.md` at the repository root is a short pointer to this file plus the
-day-to-day commands. This file stays the source of truth for conventions,
-architecture reasoning, and the chart traps below — when those change, update
-here first and only adjust `CLAUDE.md` if the summary is now wrong. For
-repository *structure*, the README is the source of truth and this file defers
-to it.
-
-Ignore `.terraform/` generated module/provider content unless explicitly asked to inspect local Terraform state or generated modules.
+Ignore local `.terraform/` generated state and modules unless explicitly asked.
 
 ## Important Configuration Concepts
 
@@ -191,8 +195,36 @@ Prefer self-service app-team onboarding through values and CRDs over hand-crafte
 The OpenTelemetry platform must monitor itself. 
 - Collectors (gateways and agents) expose metrics on `:8888` and `:8889`.
 - Mimir Ruler evaluates alerts for backpressure (`otelcol_receiver_refused_*`), data loss (`otelcol_processor_dropped_*`), and silence/down instances.
-- A decoupled Watchdog (e.g., CloudWatch Alarm over the NLB) alerts on total cluster failures.
-See `observability-platform/dashboards-and-alerts/META_MONITORING.md`.
+### Amazon Managed Prometheus (AMP) vs. Self-Hosted Mimir
+
+By default, this repository enables Amazon Managed Service for Prometheus via `use_amazon_managed_prometheus = true` in `terraform.tfvars`:
+
+- **AMP Mode (Default):** Serverless, zero-maintenance metric workspace (`aws_prometheus_workspace.amp`). The OTel Gateway exports via `prometheusremotewrite` authenticated with AWS SigV4 (`sigv4auth` extension backed by EKS Pod Identity). Grafana queries AMP natively with SigV4 enabled. This eliminates 10 stateful pods (distributor, ingester, querier, ruler, alertmanager, compactor, etc.) and reduces the cluster memory request footprint by **~1.9 GiB**.
+- **Mimir Mode (`use_amazon_managed_prometheus = false`):** Deploys self-hosted `mimir-distributed` writing blocks directly to S3 with Replication Factor 1 (`ring.replication_factor: 1`). Use this when full open-source autonomy or local testing without AWS managed service billing is desired.
+
+### Zero-Cost S3 Gateway VPC Endpoints
+
+Both the workload VPC and the observability VPC provision an `aws_vpc_endpoint` of type `Gateway` for `com.amazonaws.us-east-1.s3`:
+
+- S3 traffic from Loki (logs) and Tempo (traces) is routed directly over AWS internal network routes.
+- **FinOps Impact:** Completely bypasses NAT Gateways for S3 telemetry uploads at **$0.00/GB data transfer**, preventing NAT Gateway bandwidth charges ($0.045/GB) and eliminating connection scaling bottlenecks.
+
+### Container Image Delivery (Docker Hub vs. ECR)
+
+All workload demo services are published as public multi-arch images on Docker Hub:
+- `ok-karthik/golang-product-service:latest`
+- `ok-karthik/python-product-info-service:latest`
+
+Terraform ECR repositories (`terraform/ecr.tf`) have been removed. Application manifests deploy directly without requiring AWS account ID interpolation, ECR authorization tokens, or pre-created registries.
+
+### The 4 Levels of Telemetry Instrumentation
+
+Enterprise observability combines complementary instrumentation tiers (see `observability-platform/onboarding/instrumentation-tiers-and-ebpf.md`):
+
+1. **Level 1: Kernel-Space eBPF (OBI DaemonSet):** Zero-code instrumentation inside the Linux kernel. Catches what runtimes miss: instant `OOMKilled` (Exit 137), cross-AZ TCP retransmits, CPU CFS throttling (`runqlat`), and uninstrumented legacy binaries (Nginx, Envoy, CoreDNS).
+2. **Level 2: Runtime Auto-Instrumentation (OTel Operator):** Injected via pod annotations (`instrumentation.opentelemetry.io/inject-*`). Injects runtime hooks for Python, Java, Node.js, and .NET. Captures full application exceptions, stack traces, and database queries (`SELECT * FROM ...`).
+3. **Level 3: Programmatic SDK (Go SDK / OpenTelemetry API):** Explicit telemetry bootstrap (`telemetry.go`). Essential for compiled binaries (Go/Rust/C++) and domain-specific business metrics, internal span lifecycle tracking, and custom baggage propagation.
+4. **Level 4: Commercial Proprietary Agents (Datadog, Dynatrace):** Heavyweight proprietary agents that create vendor lock-in. This platform uses the OTel Gateway as an in-VPC "FinOps Firewall" to filter and compress telemetry before exporting to commercial SaaS when mandated.
 
 ## Scale Architecture
 
@@ -215,25 +247,49 @@ Default to per-region observability deployments. Avoid unnecessary cross-region 
 
 ## Development Guidelines
 
-- Use `rg` and `rg --files` for repository searches.
-- Preserve user changes. Do not revert unrelated working-tree changes.
-- Keep OpenTelemetry collector pipeline changes explicit: receivers -> processors/connectors -> exporters.
-- When changing collector configs, verify that all referenced receivers, processors, connectors, and exporters are actually used in `service.pipelines`. A declared-but-unwired component is inert and produces no error.
-- When changing Terraform, run `terraform fmt` on modified `.tf` files and `terraform validate` from `terraform/`.
-- When changing anything under `terraform/observability-cluster/helm-values/`, run `make helm-lint` and diff the rendered output. Helm accepts unknown value keys silently, so a wrong path yields a chart default rather than a failure.
-- When changing the Go service, build it: `cd workloads/apps-src/golang-app && go build ./...`.
-- When changing Kubernetes manifests, preserve the distinction between workload-cluster configs and observability-platform configs.
-- When adding utility workflows, expose them through the `Makefile` when appropriate.
-- Keep docs updated when changing architecture, ports, service names, cluster names, chart versions, or onboarding flows. That means `README.md`, this file, and `CLAUDE.md` if its summary is affected.
-- When adding, removing, or renaming a directory, update the tree in `README.md` only — including its `DEPLOYED`/`TEMPLATE` marker. Do not add a second tree here or to `CLAUDE.md`.
+### Before You Change Anything (Pre-Flight Checklist)
 
-### Verification targets
+- **Helm values**: run `make helm-lint`. Helm ignores unknown value keys silently, so a mistyped path leaves the chart default in place instead of failing. Rendering and diffing is the only reliable check.
+- **Terraform**: run `terraform fmt -check` on modified `.tf` files, then `terraform validate` from `terraform/` (or `terraform/single-cluster/`).
+- **Collector configs**: verify every declared receiver, processor, connector, and exporter actually appears in `service.pipelines`. A declared-but-unwired component is inert and produces no error.
+- **Chart versions**: pin them in the `local.chart_versions` map at the top of each `helm-charts.tf`.
+- **Go service**: `cd workloads/apps-src/golang-app && go build ./...`.
 
-```text
-make helm-lint    # render pinned charts locally; no cluster needed
-make k8s-status   # pods on both clusters, plus anything not Running
-make grafana-password
+### Common Commands
+
+```bash
+make k8s-create        # two-stage Terraform apply (default: SINGLE_CLUSTER=true, ~$150/mo)
+make k8s-create SINGLE_CLUSTER=false # dual-cluster peered VPC topology (~$300/mo)
+make k8s-context       # configure kubeconfig contexts for the clusters
+make k8s-deploy-all    # deploy gateway, collectors, and workload demo apps
+make k8s-status        # check pod health across all namespaces (reports non-Running pods)
+make k8s-dashboards    # port-forward Grafana to localhost:3000
+make grafana-password  # fetch auto-generated admin password
+make helm-lint         # render pinned charts locally without an active cluster
+make k8s-destroy       # tear everything down
 ```
+
+### Things That Are Easy to Get Wrong Here (Top Traps)
+
+Each of these installs cleanly and fails later silently. They are detailed throughout this document:
+
+1. **Tempo values nesting:** All settings live strictly under `tempo:`. A top-level `storage:` or `traces:` key is silently accepted and ignored, leaving traces on ephemeral local disk while S3 remains empty.
+2. **Mimir Kafka decoupling:** When disabling Kafka (`kafka.enabled: false`), you MUST set `ingester.push_grpc_method_enabled: true` and `replication_factor: 1`. Missing this leaves the distributor with no path to the ingester and every remote-write returns HTTP 500.
+3. **Loki cache memory requests:** Loki chart defaults request ~9.6 GiB RAM for `chunksCache`. Must be disabled along with `resultsCache` and canary on demo nodes. Set `limits_config.allow_structured_metadata: true` or Loki 3.x rejects every OTLP push.
+4. **cert-manager API compatibility:** Must track the Kubernetes version (Kubernetes 1.35 requires cert-manager v1.21.1+). Use `crds.enabled: true` (`installCRDs` is deprecated).
+5. **Workload agent addressing:** Workloads MUST target their node-local agent via Downward API `status.hostIP:4317`. Using the ClusterIP Service silently breaks `k8sattributes` node-filtering, causing (N-1)/N pods to lose Kubernetes metadata.
+6. **OTel Operator Service naming:** Operator exposes collectors as `<collector-name>-collector` (e.g. `otel-collector-agent-collector`), never at the bare name.
+7. **Logstash JSON codec:** OTel Gateway's `kafka/logs` exporter must set `encoding: otlp_json` explicitly. Default is binary protobuf (`otlp_proto`), which Logstash's stock JSON codec drops silently without erroring.
+8. **GoAlert version tags:** Do not pin by Docker tag (v0.34.1 tag does not exist on Docker Hub); pin strictly by sha256 digest (`goalert/goalert@sha256:...`).
+9. **Go telemetry environment variables:** `OTEL_RESOURCE_ATTRIBUTES` only takes effect if Go builds the resource with `resource.WithFromEnv()`. Bare `resource.New` silences environment variables.
+10. **StorageClass ordering:** Always ensure `cluster-storage/` (gp3) is created before stateful backend charts run via Terraform `depends_on`.
+
+### Scope Rules & Repository Integrity
+
+- **Preserve user changes:** Do not revert unrelated working-tree edits.
+- **Maintain domain separation:** Keep the boundary between `workloads/` (application code & manifests), `observability-platform/` (central platform product), and `terraform/` (cloud infra) intact.
+- **Keep documentation synchronized:** When changing architecture, ports, service names, cluster names, chart versions, or onboarding flows, update `README.md` and this file.
+- **Directory tree updates:** The canonical directory tree lives exclusively in [README.md](../README.md). When adding or renaming directories, update the tree in `README.md` only.
 
 ## Terraform Provisioning Patterns
 
