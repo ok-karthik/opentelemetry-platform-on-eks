@@ -122,50 +122,6 @@ flowchart LR
 
 ---
 
-## What Actually Gets Deployed
-
-### Observability Cluster
-
-#### Active Components (Default Stack)
-
-| Component | Chart / image | Version | Shape | Status |
-|---|---|---|---|---|
-| Amazon Managed Prometheus (AMP) | AWS Native Workspace (`aws_prometheus_workspace`) | — | Serverless, SigV4 Auth, EKS Pod Identity | **Active (Default Metrics Backend)** |
-| Loki | `grafana/loki` | 7.2.0 | SingleBinary, 1 pod, S3 | **Active (Default Logs Backend)** |
-| Tempo | `grafana/tempo` | 1.24.4 | monolithic, 1 pod, S3 | **Active (Default Traces Backend)** |
-| Grafana | `grafana/grafana` | 10.5.15 | 1 pod, 3 datasources (AMP SigV4, Loki, Tempo) | **Active (Unified Dashboards UI)** |
-| OTel Gateway (Tier 1 & 2) | `otel/opentelemetry-collector-contrib` | 0.156.0 | Deployment & StatefulSet | **Active (Routing, Sampling & Ingest)** |
-| GoAlert | `goalert/goalert` (digest-pinned) | v0.34.1 | 1 pod + Postgres StatefulSet | **Active (On-Call Pager Escalation)** |
-| Alert sink | `mendhak/http-https-echo` | 31 | 1 pod — webhook receiver for `ticket`-severity alerts | **Active (Ticket Webhook Receiver)** |
-| OTel Operator | `opentelemetry-operator` | 0.120.0 | 1 pod | **Active (Auto-Instrumentation Engine)** |
-| cert-manager | `jetstack/cert-manager` | v1.21.1 | 3 pods | **Active (Webhook TLS & CA Injection)** |
-| AWS LB Controller | `eks/aws-load-balancer-controller` | 3.4.3 | ALB + NLB | **Active (Ingress & Load Balancing)** |
-| Karpenter | `oci://public.ecr.aws/karpenter` | 1.0.6 | NodePool + EC2NodeClass | **Active (Node Autoscaling)** |
-| gp3 StorageClass | local chart `cluster-storage/` | — | installed before any PVC | **Active (Storage Baseline)** |
-
-#### Alternative & Optional Components (Disabled by Default)
-
-| Component | Chart / image | Version | Default State | When to Use |
-|---|---|---|---|---|
-| Mimir | `grafana/mimir-distributed` | 6.1.0 | **Disabled** (Replaced by Serverless AMP) | Enable via `use_amazon_managed_prometheus = false` for fully self-hosted open-source Prometheus metrics on S3 (adds 10 stateful pods). |
-| Kafka Stub | `bitnami/kafka` | 3.6 | **Disabled** (Optional Log Buffer) | Enable for high-burst log buffering (>25k events/sec) or multi-consumer streaming. |
-| OpenSearch | `opensearch-project/opensearch` | 3.8.0 | **Disabled** (Optional Enterprise Analytics) | Enable for SIEM security analytics and free-text fuzzy log search. |
-| OpenSearch Dashboards | `opensearch-project/opensearch-dashboards` | 3.8.0 | **Disabled** (Optional Analytics UI) | Enable alongside OpenSearch for Lucene-style log analytics. |
-| Logstash | `elastic/logstash` | 8.5.1 | **Disabled** (Optional Ingest Pipeline) | Enable to consume from Kafka and write JSON documents to OpenSearch. |
-
-### Workload Cluster
-
-| Component | Version | Notes |
-|---|---|---|
-| OTel Collector agent | contrib 0.156.0 | DaemonSet, `hostNetwork: true`, Downward API `status.hostIP:4317` |
-| OBI (eBPF instrumentation) | `otel/ebpf-instrument` v0.12.2 | DaemonSet, `hostPID: true` + `hostNetwork: true`, loopback to agent |
-| OTel Operator | 0.120.0 | injects Python auto-instrumentation |
-| cert-manager | v1.21.1 | webhook TLS for the operator |
-| AWS LB Controller | 3.4.3 | ALB for the demo app |
-| Go + Python demo services | latest | Docker Hub (`ok-karthik/golang-product-service`, `ok-karthik/python-product-info-service`) |
-
----
-
 ## Where Things Live
 
 | Path | Contents | Status |
@@ -178,7 +134,7 @@ flowchart LR
 | [`observability-platform/gateway-policies/`](observability-platform/gateway-policies/) | Multi-tenant routing and tail-sampling budgeting policy templates | *Template* |
 | [`observability-platform/dashboards-and-alerts/`](observability-platform/dashboards-and-alerts/) | Golden signals dashboards, PrometheusRule generator chart, and meta-monitoring | *Deployed & Template* |
 | [`observability-platform/gitops/`](observability-platform/gitops/) | Argo CD App-of-Apps and regional cluster baseline manifests | *Template* |
-| [`docs/`](docs/) | Deep-dive architectural decisions, multi-tenancy, and future roadmap | *Documentation* |
+| [`docs/`](docs/) | Decisions, multi-tenancy, deployed components inventory, and roadmap | *Documentation* |
 | [`.agents/AGENTS.md`](.agents/AGENTS.md) | Agent operational workflows, mental model, and failure traps | *Documentation* |
 
 <details>
@@ -187,6 +143,7 @@ flowchart LR
 ```text
 docs/                               # Architectural decisions & traps
   architectural-decisions.md        # 7 core decisions & scale patterns
+  deployed-components.md            # Full Helm release & version inventory
   multi-tenancy.md                  # S3 isolation, Grafana Orgs, alerts
   future-roadmap.md                 # AIOps, GenAI APM, IDP, & GitOps
 workloads/                          # App-team-owned microservices
@@ -321,6 +278,20 @@ while true; do curl -s "http://$ALB/product" > /dev/null; sleep 1; done
 ```bash
 make k8s-destroy
 ```
+
+---
+
+## 📦 Deployed Stack at a Glance
+
+* **Metrics Backend:** Amazon Managed Prometheus (AMP) — serverless via AWS SigV4 (zero pod maintenance).
+* **Logs Backend:** Grafana Loki (SingleBinary) — native OTLP on Amazon S3 via Free S3 Gateway VPC Endpoints ($0.00/GB data transfer).
+* **Traces Backend:** Grafana Tempo (Monolithic) — distributed tracing on Amazon S3 via Free S3 Gateway VPC Endpoints.
+* **Unified UI:** Grafana (10.5.15) — single pane of glass linking PromQL, LogQL, and TraceQL.
+* **Gateway Fleet:** Central OTel Gateway — Tier 1 consistent-hash router + Tier 2 tail-sampling processor.
+* **Node Agents:** OTel Collector DaemonSet (`k8sattributes`, `filelog`) + OBI eBPF (kernel TCP & HTTP RED visibility).
+* **Alerting Engine:** GoAlert (on-call pager escalation) + Alert Sink webhook (warning tickets).
+
+👉 *For the full version-pinned Helm release inventory, pod counts, and optional components (Mimir, Kafka, OpenSearch), see **[docs/deployed-components.md](docs/deployed-components.md)**.*
 
 ---
 
