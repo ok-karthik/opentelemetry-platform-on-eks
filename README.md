@@ -214,17 +214,17 @@ In production Kubernetes environments, no single telemetry approach solves every
 
 ```mermaid
 flowchart TD
-    subgraph WorkloadCluster["Workload Cluster (App Team)"]
-        App1["App Pods"]
-        App2["App Pods"]
-        Agent["OTel Agent DaemonSet"]
-        OBI["OBI DaemonSet<br/>(eBPF Zero-Code)"]
+    subgraph WorkloadCluster["Workload Cluster / Workload Pods"]
+        App1["Go Product Service<br/>(Programmatic OTel SDK)"]
+        App2["Python Info Service<br/>(Auto-Instrumentation CR)"]
+        Agent["OTel Agent DaemonSet<br/>(Enrichment + k8sattributes)"]
+        OBI["OBI DaemonSet<br/>(eBPF Zero-Code Kernel Probes)"]
 
-        App1 -->|"OTLP (SDK traces/logs)"| Agent
-        App2 -->|"OTLP (SDK traces/logs)"| Agent
-        App1 -.->|"eBPF probes (no SDK)"| OBI
-        App2 -.->|"eBPF probes (no SDK)"| OBI
-        OBI -->|"OTLP loopback (RED metrics/traces)"| Agent
+        App1 -->|"OTLP (traces/logs)"| Agent
+        App2 -->|"OTLP (traces/logs)"| Agent
+        App1 -.->|"Kernel syscalls (eBPF)"| OBI
+        App2 -.->|"Kernel syscalls (eBPF)"| OBI
+        OBI -->|"OTLP loopback (127.0.0.1:4317)"| Agent
     end
 
     subgraph ObservabilityCluster["Observability Cluster (Platform Team)"]
@@ -235,13 +235,20 @@ flowchart TD
         end
 
         subgraph Tier2["Tier 2: Processor (StatefulSet)"]
-            Processor["OTel Gateway Tier 2<br/>(Tail-Based Sampling)"]
+            Processor["OTel Gateway Tier 2<br/>(Tail-Based Sampling & Policy)"]
         end
 
-        subgraph LGTM["LGTM Observability Backends"]
-            Loki[("Loki (Logs)")]
-            Tempo[("Tempo (Traces)")]
-            Mimir[("Mimir (Metrics)")]
+        subgraph ObservabilityBackends["Observability Backends"]
+            AMP[("Amazon Managed Prometheus<br/>(AMP - Default Metrics)")]
+            Loki[("Loki (Logs)<br/>S3 Storage via VPC Endpoint")]
+            Tempo[("Tempo (Traces)<br/>S3 Storage via VPC Endpoint")]
+            Mimir[("Mimir (Metrics)<br/>Self-Hosted Alternative")]
+        end
+
+        subgraph Visualization["Visualization & Alerting"]
+            Grafana["Grafana Dashboards<br/>(AMP SigV4, Loki, Tempo)"]
+            GoAlert["GoAlert (Pager Escalation)"]
+            AlertSink["Alert Sink (Ticket Webhook)"]
         end
 
         subgraph OptionalELK["Optional Enterprise Log Analytics"]
@@ -254,23 +261,27 @@ flowchart TD
     Agent -->|"OTLP (gzip)"| NLB
     NLB --> Router
     Router -->|"Consistent Hash (traceID)"| Processor
+    Processor -->|"SigV4 Remote Write"| AMP
     Processor -->|"OTLP / Logs"| Loki
     Processor -->|"OTLP / Traces"| Tempo
-    Processor -->|"Remote Write / Metrics"| Mimir
+    Processor -.->|"Alternative Metrics"| Mimir
+    Grafana -->|"SigV4 Query"| AMP
+    Grafana -->|"LogQL"| Loki
+    Grafana -->|"TraceQL"| Tempo
     Processor -.->|"Optional Log Buffer"| Kafka
     Kafka -.-> Logstash
     Logstash -.-> OpenSearch
 ```
 
-Two EKS clusters (Kubernetes 1.35, `us-east-1`) in peered VPCs — `10.0.0.0/16` for workloads, `10.1.0.0/16` for observability. Lightweight collectors run next to workloads; a central two-tier gateway fleet on the observability cluster owns policy; logs are buffered by Kafka before shipping to ELK, while traces and metrics persist to LGTM backends.
+Deployable in **Single-Cluster Mode (default)** for rapid development and low cost, or **Multi-Cluster Mode** across peered VPCs (`10.0.0.0/16` for workloads, `10.1.0.0/16` for observability). Node-local OTel agents + OBI eBPF stream to a central two-tier gateway fleet; metrics persist to Amazon Managed Service for Prometheus (AMP) via SigV4 (or self-hosted Mimir); traces and logs persist to S3-backed Tempo and Loki over free S3 Gateway VPC endpoints; optional enterprise Kafka buffers logs to OpenSearch.
 
 ## The telemetry path
 
-1. **A Go service calls a Python service** and propagates W3C trace context. Go uses the OTel SDK programmatically (`telemetry.go`); Python is auto-instrumented by the OTel Operator through a pod annotation. Both print `trace_id=` into stdout logs.
+1. **A Go service calls a Python service** and propagates W3C trace context. Go uses the OTel SDK programmatically (`telemetry.go`); Python is auto-instrumented by the OTel Operator through a pod annotation. Both run pre-built public images from Docker Hub (`ok-karthik/*`) and print `trace_id=` into stdout logs.
 2. **Each pod exports OTLP to the collector on its own node**, resolved through the Downward API (`status.hostIP:4317`) — not through a ClusterIP Service. This is load-bearing; see [Decision 5](docs/architectural-decisions.md#5-node-local-routing-via-statushostip).
 3. **The DaemonSet agent enriches and forwards.** It receives OTLP, tails `/var/log/pods` via `filelog`, scrapes `kubeletstats`, attaches `k8s.*` attributes via `k8sattributes`, stamps `team=product`, batches, and ships everything to the regional gateway over an internal NLB.
 4. **The gateway applies platform policy.** `memory_limiter`, health-check and noisy-span filters, OTTL semantic-convention normalization, trace-ID-affinity load balancing, then `tail_sampling`, then `batch`.
-5. **Backends store, Grafana correlates.** Traces to Tempo, metrics to Mimir via Prometheus remote-write, logs to Loki over native OTLP — all on S3 with 7-day retention. Grafana links logs to traces (`derivedFields` on `trace_id`) and traces back to logs and metrics (`tracesToLogsV2`, `tracesToMetrics`).
+5. **Backends store, Grafana correlates.** Metrics to Amazon Managed Prometheus (AMP) via SigV4 remote-write (or self-hosted Mimir), traces to Tempo, logs to Loki over native OTLP — all backed by S3 with 7-day retention. S3 traffic routes over a 100% free S3 Gateway VPC Endpoint, bypassing NAT Gateways. Grafana links logs to traces (`derivedFields` on `trace_id`) and traces back to logs and metrics (`tracesToLogsV2`, `tracesToMetrics`).
 
 ## What actually gets deployed
 
@@ -278,11 +289,12 @@ Two EKS clusters (Kubernetes 1.35, `us-east-1`) in peered VPCs — `10.0.0.0/16`
 
 | Component | Chart / image | Version | Shape | Status |
 |---|---|---|---|---|
+| Amazon Managed Prometheus (AMP) | AWS Native Workspace (`aws_prometheus_workspace`) | — | Serverless, SigV4 Auth, EKS Pod Identity | **Active (Default Metrics)** |
 | Loki | `grafana/loki` | 7.2.0 | SingleBinary, 1 pod, S3 | **Active (Default Logs)** |
 | Tempo | `grafana/tempo` | 1.24.4 | monolithic, 1 pod, S3 | **Active (Traces)** |
-| Mimir | `grafana/mimir-distributed` | 6.1.0 | 10 pods, 1 replica each, S3 (incl. ruler + alertmanager) | **Active (Metrics & SLOs)** |
-| Grafana | `grafana/grafana` | 10.5.15 | 1 pod, 3 datasources | **Active (Dashboards)** |
-| OTel Gateway (Tier 1 & 2) | `otel/opentelemetry-collector-contrib` | 0.156.0 | Deployment & StatefulSet | **Active (Routing & Sampling)** |
+| Mimir | `grafana/mimir-distributed` | 6.1.0 | 10 pods, 1 replica each, S3 (incl. ruler + alertmanager) | *Alternative Self-Hosted (Disabled by default when AMP is used)* |
+| Grafana | `grafana/grafana` | 10.5.15 | 1 pod, 3 datasources (AMP SigV4, Loki, Tempo) | **Active (Dashboards)** |
+| OTel Gateway (Tier 1 & 2) | `otel/opentelemetry-collector-contrib` | 0.156.0 | Deployment & StatefulSet | **Active (Routing, Sampling & AMP Ingest)** |
 | GoAlert | `goalert/goalert` (digest-pinned) | v0.34.1 | 1 pod + Postgres StatefulSet | **Active (On-Call Escalation)** |
 | Alert sink | `mendhak/http-https-echo` | 31 | 1 pod — webhook receiver for `ticket`-severity alerts | **Active (Ticket Receiver)** |
 | OTel Operator | `opentelemetry-operator` | 0.120.0 | 1 pod | **Active** |
@@ -295,9 +307,9 @@ Two EKS clusters (Kubernetes 1.35, `us-east-1`) in peered VPCs — `10.0.0.0/16`
 | OpenSearch Dashboards | `opensearch-project/opensearch-dashboards` | 3.8.0 | 1 pod | *Optional Extension (Disabled)* |
 | Logstash | `elastic/logstash` | 8.5.1 | 1 pod, Kafka → OpenSearch | *Optional Extension (Disabled)* |
 
-Mimir runs distributor, ingester, querier, query-frontend, query-scheduler, store-gateway, compactor, gateway, ruler, and alertmanager — one replica each. Overrides-exporter, rollout-operator, MinIO, and the bundled Kafka are disabled.
+With AMP enabled by default, self-hosted Mimir's 10 stateful pods (distributor, ingester, querier, etc.) are eliminated, reducing the cluster footprint down to **~1.2 vCPU / ~3.8 GiB RAM**. If `use_amazon_managed_prometheus = false` is configured, Mimir deploys with Replication Factor 1 on S3.
 
-Node group: 2× `t3.large` spot (min 2, max 6), plus Karpenter for burst. Measured request footprint of the trimmed stack is ~2.2 vCPU / ~6.4 GiB.
+Node group: 2× `t3.large` spot (min 2, max 6), plus Karpenter for burst.
 
 ### Workload cluster
 
@@ -308,13 +320,18 @@ Node group: 2× `t3.large` spot (min 2, max 6), plus Karpenter for burst. Measur
 | OTel Operator | 0.120.0 | injects Python auto-instrumentation |
 | cert-manager | v1.21.1 | webhook TLS for the operator |
 | AWS LB Controller | 3.4.3 | ALB for the demo app |
-| Go + Python demo services | — | built and pushed to ECR by GitHub Actions |
+| Go + Python demo services | latest | Docker Hub (`ok-karthik/golang-product-service`, `ok-karthik/python-product-info-service`) |
 
 Node group: 2× `t3.medium` spot (min 1, max 4). No Karpenter — two app pods and a DaemonSet fit a single node group.
 
-### AWS
+### AWS Cloud Infrastructure
 
-Five S3 buckets (Loki, Tempo, Mimir blocks/ruler/alertmanager). The alertmanager bucket holds Alertmanager's runtime state (silences, notification log); the ruler bucket is provisioned but unused — Mimir's ruler reads SLO rule groups from a mounted ConfigMap instead (see [Decision 7](docs/architectural-decisions.md#7-slo-burn-rate-alerts-in-the-observability-layer-not-the-app)). One IAM role reached through **EKS Pod Identity** associations, one NAT gateway per VPC, one internal NLB for OTLP ingest, one internet-facing ALB for Grafana, five 10 GiB gp3 volumes, one 1 GiB gp3 volume for Alertmanager, one 5 GiB gp3 volume for GoAlert's Postgres (plus an optional 10 GiB volume if OpenSearch is enabled). ECR repositories for both service images. CI authenticates to AWS via GitHub OIDC, not static keys.
+* **Amazon Managed Prometheus (AMP):** Serverless Prometheus workspace (`aws_prometheus_workspace.amp`) providing managed metric ingestion via SigV4 with zero pod maintenance.
+* **S3 Buckets & Free S3 Gateway VPC Endpoints:** 2 S3 buckets by default (Loki logs, Tempo traces; plus 3 Mimir buckets if self-hosted Mimir is enabled). Both VPCs provision an `aws_vpc_endpoint` of type `Gateway` (`com.amazonaws.us-east-1.s3`), completely bypassing NAT Gateways for S3 telemetry uploads at **$0.00/GB data transfer**.
+* **IAM & Security:** EKS Pod Identity associations for OTel Gateway (AMP remote write), Grafana (AMP SigV4 query), Loki/Tempo (S3 read/write), and AWS Load Balancer Controller.
+* **Networking:** 1 NAT Gateway per VPC, 1 internal NLB for cross-VPC OTLP ingest, 1 internet-facing ALB for Grafana, and VPC Peering with bidirectional routing tables.
+* **Container Images:** Pre-built public images on Docker Hub (`ok-karthik/*`), requiring zero ECR configuration or AWS authentication during deployment.
+
 
 ### Where things live
 
@@ -424,49 +441,57 @@ Stated plainly, because these read as features if you only skim the directory tr
 
 ### Prerequisites
 
-- AWS credentials with Admin/PowerUser permissions (`aws configure`). Region is hardcoded to `us-east-1`.
+- AWS credentials with Admin/PowerUser permissions (`aws configure`). Region defaults to `us-east-1`.
 - `kubectl` 1.23+, `terraform` 1.5.0+, `helm` 3.x, `python3`.
-- ECR repositories are created by Terraform, so run `make k8s-create` before expecting the image-build workflow to succeed. The workflow needs an `AWS_ROLE_TO_ASSUME` secret for OIDC.
+- Demo application images are publicly hosted on Docker Hub (`ok-karthik/golang-product-service` and `ok-karthik/python-product-info-service`). No manual image builds or ECR logins are needed.
 
 ### Cost warning
 
-This provisions real infrastructure. Roughly **$300/month if left running (~$0.40/hour)**, dominated by fixed costs you pay whether or not any telemetry flows:
+This provisions real AWS infrastructure:
 
-| Item | Approximate monthly |
-|---|---|
-| 2× EKS control plane | $146 |
-| 2× NAT gateway | $65 + data processing |
-| ALB + NLB | ~$35 |
-| Observability nodes (2× t3.large spot) | ~$36 |
-| Workload nodes (2× t3.medium spot) | ~$18 |
-| 5× 10 GiB gp3 | ~$4 |
-| S3 | cents at demo volume |
+* **Single-Cluster Mode (`SINGLE_CLUSTER=true`, default):** Roughly **~$150/month (~$0.20/hour)**. Uses 1× EKS control plane, 1× NAT gateway, serverless AMP metrics, 2× `t3.large` spot nodes, and free S3 Gateway VPC endpoints.
+* **Multi-Cluster Peered Mode (`SINGLE_CLUSTER=false`):** Roughly **~$300/month (~$0.40/hour)**. Uses 2× EKS control planes, 2× NAT gateways, cross-VPC peering, and 2 separate node groups.
+
+| Item | Single-Cluster (Default) | Multi-Cluster (Peered) |
+|---|---|---|
+| EKS Control Plane | 1× ($73/mo) | 2× ($146/mo) |
+| NAT Gateway | 1× ($32/mo) | 2× ($65/mo) |
+| ALB + Ingestion NLB | ~$35/mo | ~$35/mo |
+| Spot EC2 Compute | 2× t3.large (~$36/mo) | 2× t3.large + 2× t3.medium (~$54/mo) |
+| S3 Storage & Endpoints | $0 VPC Endpoint + cents | $0 VPC Endpoint + cents |
+| AMP Serverless Metrics | ~$0.90 / 10M samples | ~$0.90 / 10M samples |
 
 `us-east-1` list prices, excluding data transfer; spot prices vary. **Destroy it when you are done.**
 
 ### Deploy
 
 ```bash
-make k8s-create        # two-stage Terraform apply: infra, then Helm
-make k8s-context       # kubeconfig contexts for both clusters
-make k8s-deploy-all    # gateway, NLB, collectors, demo apps
+make k8s-create        # two-stage apply in Single-Cluster mode (~$150/mo, fastest)
+# OR: make k8s-create SINGLE_CLUSTER=false  # dual-cluster peered topology (~$300/mo)
+
+make k8s-context       # configure kubeconfig contexts
+make k8s-deploy-all    # deploy gateway, collectors, and workloads
 ```
 
-The two stages are load-bearing and must not be collapsed — see [Decision 6](docs/architectural-decisions.md#6-supporting-architecture-decisions). Use `make k8s-create-infra` or `make k8s-create-helm` to re-run a single stage after a partial failure.
+The two stages (`make k8s-create-infra`, then `make k8s-create-helm`) are load-bearing and must not be collapsed — see [Decision 6](docs/architectural-decisions.md#6-supporting-architecture-decisions).
 
 ### Look at it
 
 ```bash
 make k8s-dashboards    # port-forward Grafana to http://localhost:3000
-make grafana-password  # generated admin password (user: admin)
-make k8s-status        # pods on both clusters, plus anything not Running
+make grafana-password  # fetch generated admin password (user: admin)
+make k8s-status        # check pod health across namespaces
 ```
 
 Generate traffic through the demo services:
 
 ```bash
-ALB=$(kubectl --context apps-workload-cluster-1 get ingress app-ingress \
-  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+# In Single-Cluster mode (default):
+ALB=$(kubectl --context observability-platform get ingress app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+# In Multi-Cluster mode:
+# ALB=$(kubectl --context apps-workload-cluster-1 get ingress app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
 while true; do curl -s "http://$ALB/product" > /dev/null; sleep 1; done
 ```
 
