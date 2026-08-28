@@ -10,7 +10,7 @@ APPS_MANIFEST_DIR = apps-workload-cluster-1/k8s-manifests
 OBS_MANIFEST_DIR = observability-platform/k8s-manifests
 AWS_ACCOUNT_ID ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
 
-.PHONY: help k8s-create k8s-create-infra k8s-create-helm k8s-destroy k8s-context k8s-deploy-all k8s-deploy-otel k8s-deploy-apps k8s-undeploy-all k8s-dashboards grafana-password k8s-status helm-lint
+.PHONY: help k8s-create k8s-create-infra k8s-create-helm k8s-destroy k8s-context k8s-deploy-all k8s-deploy-otel k8s-deploy-apps k8s-undeploy-all k8s-dashboards grafana-password k8s-status helm-lint ecr-build-push
 
 help: ## Show this help message
 	@echo "Usage: make [target]"
@@ -21,6 +21,9 @@ help: ## Show this help message
 	@echo "  k8s-create-helm      Stage 2 only — Helm charts only. Assumes EKS is already up."
 	@echo "  k8s-destroy          Destroy all AWS resources via Terraform"
 	@echo "  k8s-context          Update kubeconfig context for both EKS clusters"
+	@echo ""
+	@echo "Container Images (ECR):"
+	@echo "  ecr-build-push       Build and push Go and Python demo images to Amazon ECR"
 	@echo ""
 	@echo "Deploying Observability (Multi-Cluster):"
 	@echo "  k8s-deploy-all       Deploy both the Otel Gateway stack and the microservices stack"
@@ -147,6 +150,22 @@ k8s-deploy-otel:
 	@echo "Exposing Gateway via AWS NLB in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/svc-nlb-otel-gateway.yaml
 
+ecr-build-push: ## Build and push Go + Python app container images to Amazon ECR
+	@echo "Logging into Amazon ECR in $(AWS_REGION)..."
+	$(eval ACCOUNT_ID := $(if $(AWS_ACCOUNT_ID),$(AWS_ACCOUNT_ID),$(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)))
+	@if [ -z "$(ACCOUNT_ID)" ]; then \
+		echo "ERROR: Could not retrieve AWS Account ID. Please authenticate with AWS first."; \
+		exit 1; \
+	fi; \
+	aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com
+	@echo "Building and pushing Go Product Service..."
+	docker build -t $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/golang-product-service:latest apps-workload-cluster-1/apps-src/golang-app
+	docker push $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/golang-product-service:latest
+	@echo "Building and pushing Python Product Info Service..."
+	docker build -t $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/python-product-info-service:latest apps-workload-cluster-1/apps-src/python-app
+	docker push $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/python-product-info-service:latest
+	@echo "Successfully pushed images to ECR."
+
 k8s-deploy-apps:
 	@echo "Waiting for Cert-Manager in $(APPS_CLUSTER)..."
 	kubectl --context $(APPS_CLUSTER) wait --for=condition=Available --timeout=300s deployment/cert-manager-webhook -n cert-manager
@@ -162,7 +181,7 @@ k8s-deploy-apps:
 	fi; \
 	echo "Using AWS Account ID: $(ACCOUNT_ID)"; \
 	echo "Waiting for OTel Gateway LoadBalancer hostname to be assigned..."; \
-	for i in {1..30}; do \
+	for i in $$(seq 1 30); do \
 		host=$$(kubectl --context $(OTEL_CLUSTER) get svc svc-nlb-otel-gateway -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null); \
 		if [ -n "$$host" ]; then \
 			echo "Found OTel Gateway LoadBalancer Host: $$host"; \

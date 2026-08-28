@@ -12,12 +12,12 @@ resource "aws_sns_topic" "observability_emergency_pager" {
   name = "${local.project}-${local.env}-emergency-pager"
 }
 
-# Example Subscription (would be replaced with actual PagerDuty HTTPS endpoint)
-resource "aws_sns_topic_subscription" "emergency_email" {
-  topic_arn = aws_sns_topic.observability_emergency_pager.arn
-  protocol  = "email"
-  endpoint  = "sre-oncall@example.com"
-}
+# Example Subscription (uncomment and replace with real PagerDuty / OpsGenie HTTPS endpoint or email)
+# resource "aws_sns_topic_subscription" "emergency_email" {
+#   topic_arn = aws_sns_topic.observability_emergency_pager.arn
+#   protocol  = "email"
+#   endpoint  = "sre-oncall@example.com"
+# }
 
 # 2. CloudWatch Dead-Man's Alarm (Total Cluster / Network Failure)
 # This alarm watches the Network Load Balancer (NLB) for the OTel Gateway.
