@@ -3,6 +3,7 @@
 # ==============================================================================
 
 # Variables
+SINGLE_CLUSTER ?= false
 APPS_CLUSTER ?= apps-workload-cluster-1
 OTEL_CLUSTER ?= observability-cluster
 AWS_REGION ?= us-east-1
@@ -11,32 +12,35 @@ OBS_MANIFEST_DIR = observability-platform/k8s-manifests
 AWS_ACCOUNT_ID ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
 DOCKERHUB_USER_NAME ?=
 
+TF_DIR := $(if $(filter true,$(SINGLE_CLUSTER)),terraform/single-cluster,terraform)
+TARGET_APPS_CLUSTER := $(if $(filter true,$(SINGLE_CLUSTER)),$(OTEL_CLUSTER),$(APPS_CLUSTER))
+
 .PHONY: help k8s-create k8s-create-infra k8s-create-helm k8s-destroy k8s-context k8s-deploy-all k8s-deploy-otel k8s-deploy-apps k8s-undeploy-all k8s-dashboards grafana-password k8s-status helm-lint ecr-build-push docker-build-push
 
 help: ## Show this help message
-	@echo "Usage: make [target]"
+	@echo "Usage: make [target] [SINGLE_CLUSTER=true]"
 	@echo ""
 	@echo "AWS EKS Infrastructure (Terraform):"
-	@echo "  k8s-create           Create EKS clusters + deploy Helm charts (two-stage, recommended)"
+	@echo "  k8s-create           Create EKS cluster(s) + deploy Helm charts (use SINGLE_CLUSTER=true for fast single-cluster mode)"
 	@echo "  k8s-create-infra     Stage 1 only — EKS, VPC, IAM, S3 (no Helm). Safe to re-run."
 	@echo "  k8s-create-helm      Stage 2 only — Helm charts only. Assumes EKS is already up."
 	@echo "  k8s-destroy          Destroy all AWS resources via Terraform"
-	@echo "  k8s-context          Update kubeconfig context for both EKS clusters"
+	@echo "  k8s-context          Update kubeconfig context for EKS cluster(s)"
 	@echo ""
 	@echo "Container Images (Docker Hub & ECR):"
 	@echo "  docker-build-push    Build and push demo images to Docker Hub (DOCKERHUB_USER_NAME=...)"
 	@echo "  ecr-build-push       Build and push demo images to Amazon ECR"
 	@echo ""
-	@echo "Deploying Observability (Multi-Cluster):"
+	@echo "Deploying Observability:"
 	@echo "  k8s-deploy-all       Deploy both the Otel Gateway stack and the microservices stack"
 	@echo "  k8s-deploy-otel      Apply dashboards, Gateway, and LB Services to the observability cluster"
-	@echo "  k8s-deploy-apps      Apply DaemonSet, Instrumentation, and apps to the workload cluster"
-	@echo "  k8s-undeploy-all     Remove manifests from both clusters"
+	@echo "  k8s-deploy-apps      Apply DaemonSet, Instrumentation, and apps (to $(TARGET_APPS_CLUSTER))"
+	@echo "  k8s-undeploy-all     Remove manifests from cluster(s)"
 	@echo ""
 	@echo "Access & Verification:"
 	@echo "  k8s-dashboards       Port-forward Grafana to http://localhost:3000"
 	@echo "  grafana-password     Print the generated Grafana admin password"
-	@echo "  k8s-status           Show pod status across both clusters"
+	@echo "  k8s-status           Show pod status across cluster(s)"
 	@echo "  helm-lint            Render the LGTM charts locally without applying"
 
 
@@ -48,9 +52,7 @@ help: ## Show this help message
 # No helm_release resources are touched until Stage 2, avoiding the
 # "Helm provider talks to a not-yet-healthy API server" race condition.
 #
-# Infra resource targets for BOTH clusters:
-INFRA_TARGETS := \
-  -target='module.apps_workload_cluster_1' \
+INFRA_TARGETS_SHARED := \
   -target='module.observability_cluster.module.eks' \
   -target='module.observability_cluster.module.karpenter' \
   -target='module.observability_cluster.aws_vpc.main' \
@@ -79,48 +81,62 @@ INFRA_TARGETS := \
   -target='module.observability_cluster.aws_iam_role.aws_lb_controller' \
   -target='module.observability_cluster.aws_iam_role_policy_attachment.aws_lb_controller' \
   -target='module.observability_cluster.aws_eks_pod_identity_association.aws_lb_controller' \
+  -target='aws_ecr_repository.golang_product_service' \
+  -target='aws_ecr_repository.python_product_info_service'
+
+INFRA_TARGETS_MULTI := \
+  $(INFRA_TARGETS_SHARED) \
+  -target='module.apps_workload_cluster_1' \
   -target='aws_vpc_peering_connection.peering' \
   -target='aws_route.apps_to_otel' \
   -target='aws_route.otel_to_apps'
 
-k8s-create: ## Create both EKS clusters and deploy all Helm charts (two-stage)
-	@echo "=== Stage 1: Provisioning EKS clusters, VPC, IAM, S3 (no Helm) ==="
-	cd terraform && terraform init -upgrade && \
-	  terraform apply $(INFRA_TARGETS) \
+ACTIVE_INFRA_TARGETS := $(if $(filter true,$(SINGLE_CLUSTER)),$(INFRA_TARGETS_SHARED),$(INFRA_TARGETS_MULTI))
+
+k8s-create: ## Create EKS cluster(s) and deploy Helm charts (use SINGLE_CLUSTER=true for single cluster)
+	@echo "=== Stage 1: Provisioning EKS infra in $(TF_DIR) ==="
+	cd $(TF_DIR) && terraform init -upgrade && \
+	  terraform apply $(ACTIVE_INFRA_TARGETS) \
 	    -parallelism=20 \
 	    -auto-approve
 	@echo ""
-	@echo "=== Stage 2: Installing Helm charts (cert-manager, OTel, LGTM, Karpenter) ==="
-	cd terraform && \
+	@echo "=== Stage 2: Installing Helm charts in $(TF_DIR) ==="
+	cd $(TF_DIR) && \
 	  terraform apply \
 	    -var="deploy_observability_stack=true" \
 	    -parallelism=20 \
 	    -auto-approve
 
 k8s-create-infra: ## Stage 1 only — provision EKS infra without Helm charts (for re-runs)
-	@echo "=== Stage 1 only: EKS infra ==="
-	cd terraform && terraform init -upgrade && \
-	  terraform apply $(INFRA_TARGETS) \
+	@echo "=== Stage 1 only: EKS infra in $(TF_DIR) ==="
+	cd $(TF_DIR) && terraform init -upgrade && \
+	  terraform apply $(ACTIVE_INFRA_TARGETS) \
 	    -parallelism=20 \
 	    -auto-approve
 
 k8s-create-helm: ## Stage 2 only — install/upgrade Helm charts (assumes EKS is already up)
-	@echo "=== Stage 2 only: Helm charts ==="
-	cd terraform && \
+	@echo "=== Stage 2 only: Helm charts in $(TF_DIR) ==="
+	cd $(TF_DIR) && \
 	  terraform apply \
 	    -var="deploy_observability_stack=true" \
 	    -parallelism=20 \
 	    -auto-approve
 
-k8s-destroy: ## Destroy all AWS resources
-	cd terraform && terraform destroy \
+k8s-destroy: ## Destroy all AWS resources in active topology
+	cd $(TF_DIR) && terraform destroy \
 	  -var="deploy_observability_stack=true" \
 	  -parallelism=20 \
 	  -auto-approve
 
-k8s-context:
-	aws eks update-kubeconfig --region $(AWS_REGION) --name $(APPS_CLUSTER) --alias $(APPS_CLUSTER)
-	aws eks update-kubeconfig --region $(AWS_REGION) --name $(OTEL_CLUSTER) --alias $(OTEL_CLUSTER)
+k8s-context: ## Update kubeconfig context for active cluster(s)
+	@if [ "$(SINGLE_CLUSTER)" = "true" ]; then \
+		echo "Configuring kubectl context for single cluster ($(OTEL_CLUSTER))..."; \
+		aws eks update-kubeconfig --region $(AWS_REGION) --name $(OTEL_CLUSTER) --alias $(OTEL_CLUSTER); \
+	else \
+		echo "Configuring kubectl context for multi-cluster ($(APPS_CLUSTER) & $(OTEL_CLUSTER))..."; \
+		aws eks update-kubeconfig --region $(AWS_REGION) --name $(APPS_CLUSTER) --alias $(APPS_CLUSTER); \
+		aws eks update-kubeconfig --region $(AWS_REGION) --name $(OTEL_CLUSTER) --alias $(OTEL_CLUSTER); \
+	fi
 
 # ==============================================================================
 # EKS Production Deployment Targets
@@ -184,12 +200,12 @@ ecr-build-push: ## Build and push Go + Python app container images to Amazon ECR
 	@echo "Successfully pushed images to ECR."
 
 k8s-deploy-apps:
-	@echo "Waiting for Cert-Manager in $(APPS_CLUSTER)..."
-	kubectl --context $(APPS_CLUSTER) wait --for=condition=Available --timeout=300s deployment/cert-manager-webhook -n cert-manager
-	@echo "Waiting for OTel Operator in $(APPS_CLUSTER)..."
-	kubectl --context $(APPS_CLUSTER) wait --for=condition=Available --timeout=300s deployment/opentelemetry-operator -n opentelemetry-operator-system
-	@echo "Applying Namespace in $(APPS_CLUSTER)..."
-	kubectl --context $(APPS_CLUSTER) create namespace monitoring --dry-run=client -o yaml | kubectl --context $(APPS_CLUSTER) apply -f -
+	@echo "Waiting for Cert-Manager in $(TARGET_APPS_CLUSTER)..."
+	kubectl --context $(TARGET_APPS_CLUSTER) wait --for=condition=Available --timeout=300s deployment/cert-manager-webhook -n cert-manager
+	@echo "Waiting for OTel Operator in $(TARGET_APPS_CLUSTER)..."
+	kubectl --context $(TARGET_APPS_CLUSTER) wait --for=condition=Available --timeout=300s deployment/opentelemetry-operator -n opentelemetry-operator-system
+	@echo "Applying Namespace in $(TARGET_APPS_CLUSTER)..."
+	kubectl --context $(TARGET_APPS_CLUSTER) create namespace monitoring --dry-run=client -o yaml | kubectl --context $(TARGET_APPS_CLUSTER) apply -f -
 	@echo "Checking AWS Account ID..."
 	$(eval ACCOUNT_ID := $(if $(AWS_ACCOUNT_ID),$(AWS_ACCOUNT_ID),$(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)))
 	@if [ -z "$(ACCOUNT_ID)" ]; then \
@@ -200,20 +216,25 @@ k8s-deploy-apps:
 	$(eval DOCKER_USER := $(strip $(DOCKERHUB_USER_NAME)))
 	$(eval REGISTRY := $(if $(DOCKER_USER),$(DOCKER_USER),$(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com))
 	@echo "Using Image Registry / Prefix: $(REGISTRY)"; \
-	echo "Waiting for OTel Gateway LoadBalancer hostname to be assigned..."; \
-	for i in $$(seq 1 30); do \
-		host=$$(kubectl --context $(OTEL_CLUSTER) get svc svc-nlb-otel-gateway -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null); \
-		if [ -n "$$host" ]; then \
-			echo "Found OTel Gateway LoadBalancer Host: $$host"; \
-			OTEL_GATEWAY_LB_HOST=$$host; \
-			break; \
+	if [ "$(SINGLE_CLUSTER)" = "true" ]; then \
+		echo "Single-cluster mode: Routing OTel telemetry directly via in-cluster DNS..."; \
+		OTEL_GATEWAY_LB_HOST="otel-collector-tier1-router-collector.monitoring.svc.cluster.local"; \
+	else \
+		echo "Waiting for OTel Gateway LoadBalancer hostname to be assigned..."; \
+		for i in $$(seq 1 30); do \
+			host=$$(kubectl --context $(OTEL_CLUSTER) get svc svc-nlb-otel-gateway -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null); \
+			if [ -n "$$host" ]; then \
+				echo "Found OTel Gateway LoadBalancer Host: $$host"; \
+				OTEL_GATEWAY_LB_HOST=$$host; \
+				break; \
+			fi; \
+			echo "Waiting for LoadBalancer host allocation (attempt $$i/30)..."; \
+			sleep 10; \
+		done; \
+		if [ -z "$$OTEL_GATEWAY_LB_HOST" ]; then \
+			echo "ERROR: Timed out waiting for OTel Gateway LoadBalancer hostname."; \
+			exit 1; \
 		fi; \
-		echo "Waiting for LoadBalancer host allocation (attempt $$i/30)..."; \
-		sleep 10; \
-	done; \
-	if [ -z "$$OTEL_GATEWAY_LB_HOST" ]; then \
-		echo "ERROR: Timed out waiting for OTel Gateway LoadBalancer hostname."; \
-		exit 1; \
 	fi; \
 	mkdir -p .tmp-manifests; \
 	cp -R $(APPS_MANIFEST_DIR)/* .tmp-manifests/; \
@@ -224,15 +245,15 @@ k8s-deploy-apps:
 		sed "s|<OTEL_GATEWAY_LB_HOST>|$$OTEL_GATEWAY_LB_HOST|g" "$$file.tmp" > "$$file"; \
 		rm -f "$$file.tmp"; \
 	done; \
-	echo "Applying rendered OTel Agent, Apps & Ingress in $(APPS_CLUSTER)..."; \
-	kubectl --context $(APPS_CLUSTER) apply -R -f .tmp-manifests/; \
+	echo "Applying rendered OTel Agent, Apps & Ingress in $(TARGET_APPS_CLUSTER)..."; \
+	kubectl --context $(TARGET_APPS_CLUSTER) apply -R -f .tmp-manifests/; \
 	rm -rf .tmp-manifests
 
 # -R is required: the workload manifests live in per-app subdirectories, and a
 # non-recursive delete silently skips everything under golang-app/ and
 # python-app/, leaving the Deployments and the ALB behind.
 k8s-undeploy-all:
-	kubectl --context $(APPS_CLUSTER) delete -R -f $(APPS_MANIFEST_DIR)/ --ignore-not-found=true
+	kubectl --context $(TARGET_APPS_CLUSTER) delete -R -f $(APPS_MANIFEST_DIR)/ --ignore-not-found=true
 	kubectl --context $(OTEL_CLUSTER) delete -R -f $(OBS_MANIFEST_DIR)/ --ignore-not-found=true
 
 # ==============================================================================
@@ -250,16 +271,18 @@ grafana-password: ## Print the chart-generated Grafana admin password
 	@kubectl --context $(OTEL_CLUSTER) get secret grafana -n monitoring \
 	  -o jsonpath='{.data.admin-password}' | base64 -d; echo
 
-k8s-status: ## Show pod status on both clusters
+k8s-status: ## Show pod status on active cluster(s)
 	@echo "=== $(OTEL_CLUSTER) / monitoring ==="
 	@kubectl --context $(OTEL_CLUSTER) get pods -n monitoring -o wide || true
 	@echo ""
 	@echo "=== $(OTEL_CLUSTER) / pending or unhealthy pods (all namespaces) ==="
 	@kubectl --context $(OTEL_CLUSTER) get pods -A \
 	  --field-selector=status.phase!=Running,status.phase!=Succeeded || true
-	@echo ""
-	@echo "=== $(APPS_CLUSTER) ==="
-	@kubectl --context $(APPS_CLUSTER) get pods -A -o wide | grep -E 'monitoring|default|NAMESPACE' || true
+	@if [ "$(SINGLE_CLUSTER)" != "true" ]; then \
+		echo ""; \
+		echo "=== $(APPS_CLUSTER) ==="; \
+		kubectl --context $(APPS_CLUSTER) get pods -A -o wide 2>/dev/null | grep -E 'monitoring|default|NAMESPACE' || true; \
+	fi
 
 # Renders the pinned charts with the repo's values so value-path mistakes are
 # caught before a 15-minute apply. Helm ignores unknown keys silently, so a

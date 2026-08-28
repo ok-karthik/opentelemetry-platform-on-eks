@@ -23,15 +23,7 @@ output "kubeconfig_update_command" {
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
 }
 
-output "golang_checkout_service_repository_url" {
-  description = "The ECR repository URL for the Go checkout service"
-  value       = aws_ecr_repository.golang_product_service.repository_url
-}
 
-output "python_payment_service_repository_url" {
-  description = "The ECR repository URL for the Python payment service"
-  value       = aws_ecr_repository.python_product_info_service.repository_url
-}
 
 output "vpc_id" {
   description = "The ID of the VPC"
