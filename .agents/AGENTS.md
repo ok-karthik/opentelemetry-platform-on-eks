@@ -9,7 +9,7 @@ Treat this repository as a reference implementation for an internal observabilit
 Although the directories currently live in one repository, reason about them as if they could be separate Git repositories:
 
 - `observability-platform/`: platform-owned observability product templates, gateway policy, routing, dashboards, alerts, and cost controls.
-- `apps-workload-cluster-1/`: application-team-owned workload repository that consumes the observability platform.
+- `workloads/`: application-team-owned workload repository that consumes the observability platform.
 - `terraform/`: infrastructure provisioning for the workload EKS cluster and the dedicated observability EKS cluster.
 
 The core telemetry flow is:
@@ -38,7 +38,7 @@ second copy drifts, and this file is the one agents read most.
 
 What the tree does not say, and this file is responsible for:
 
-- `apps-workload-cluster-1/`, `observability-platform/`, and `terraform/` are
+- `workloads/`, `observability-platform/`, and `terraform/` are
   one repository today, but reason about them as three — app-team-owned,
   platform-owned, and infrastructure. The ownership model above is what decides
   where a change belongs.
@@ -60,7 +60,7 @@ Ignore `.terraform/` generated module/provider content unless explicitly asked t
 
 ### Workload Cluster Collector
 
-`apps-workload-cluster-1/k8s-manifests/otel-collector-daemonset.yaml` runs an OpenTelemetry Collector as a DaemonSet.
+`workloads/k8s-manifests/otel-collector-daemonset.yaml` runs an OpenTelemetry Collector as a DaemonSet.
 
 It is responsible for:
 
@@ -106,7 +106,7 @@ Workloads target their **node-local** agent through the Downward API
 (`status.hostIP`), not the collector's ClusterIP Service — see the k8sattributes
 note below.
 
-Go uses programmatic SDK setup in `apps-workload-cluster-1/apps-src/golang-app/telemetry.go`.
+Go uses programmatic SDK setup in `workloads/apps-src/golang-app/telemetry.go`.
 
 When adding language templates, prefer:
 
@@ -221,7 +221,7 @@ Default to per-region observability deployments. Avoid unnecessary cross-region 
 - When changing collector configs, verify that all referenced receivers, processors, connectors, and exporters are actually used in `service.pipelines`. A declared-but-unwired component is inert and produces no error.
 - When changing Terraform, run `terraform fmt` on modified `.tf` files and `terraform validate` from `terraform/`.
 - When changing anything under `terraform/observability-cluster/helm-values/`, run `make helm-lint` and diff the rendered output. Helm accepts unknown value keys silently, so a wrong path yields a chart default rather than a failure.
-- When changing the Go service, build it: `cd apps-workload-cluster-1/apps-src/golang-app && go build ./...`.
+- When changing the Go service, build it: `cd workloads/apps-src/golang-app && go build ./...`.
 - When changing Kubernetes manifests, preserve the distinction between workload-cluster configs and observability-platform configs.
 - When adding utility workflows, expose them through the `Makefile` when appropriate.
 - Keep docs updated when changing architecture, ports, service names, cluster names, chart versions, or onboarding flows. That means `README.md`, this file, and `CLAUDE.md` if its summary is affected.

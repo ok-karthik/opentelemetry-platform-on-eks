@@ -11,7 +11,7 @@ on:
 env:
   GOLANG_APP_REPO: golang-product-service
   PYTHON_APP_REPO: python-product-info-service
-  APPS_SRC_DIR: apps-workload-cluster-1/apps-src
+  APPS_SRC_DIR: workloads/apps-src
 
 jobs:
   build-and-push:

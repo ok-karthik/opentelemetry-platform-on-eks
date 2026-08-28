@@ -20,7 +20,7 @@ app pod -> DaemonSet collector (workload cluster)
 
 | Where | What |
 |---|---|
-| `apps-workload-cluster-1/` | Demo Go + Python services, their manifests, the DaemonSet collector |
+| `workloads/` | Demo Go + Python services, their manifests, the DaemonSet collector |
 | `observability-platform/` | Platform-owned templates: onboarding, gateway policy, dashboards, GitOps |
 | `terraform/` | Both clusters. Backend Helm values in `observability-cluster/helm-values/` |
 | `.agents/AGENTS.md` | Architecture, conventions, and the chart-specific traps |
@@ -37,7 +37,7 @@ app pod -> DaemonSet collector (workload cluster)
   component is inert and fails silently.
 - **Chart versions**: pin them. They live in the `local.chart_versions` map at
   the top of each `helm-charts.tf`.
-- **Go service**: `cd apps-workload-cluster-1/apps-src/golang-app && go build ./...`
+- **Go service**: `cd workloads/apps-src/golang-app && go build ./...`
 
 ## Common commands
 

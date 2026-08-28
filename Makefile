@@ -7,7 +7,7 @@ SINGLE_CLUSTER ?= true
 APPS_CLUSTER ?= apps-workload-cluster-1
 OTEL_CLUSTER ?= observability-cluster
 AWS_REGION ?= us-east-1
-APPS_MANIFEST_DIR = apps-workload-cluster-1/k8s-manifests
+APPS_MANIFEST_DIR = workloads/k8s-manifests
 OBS_MANIFEST_DIR = observability-platform/k8s-manifests
 AWS_ACCOUNT_ID ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
 DOCKERHUB_USER_NAME ?=
@@ -186,10 +186,10 @@ docker-build-push: ## Build and push Go and Python app images to Docker Hub (mak
 	fi; \
 	docker login -u $(DOCKERHUB_USER_NAME)
 	@echo "Building and pushing Go Product Service..."
-	docker build -t $(DOCKERHUB_USER_NAME)/golang-product-service:latest apps-workload-cluster-1/apps-src/golang-app
+	docker build -t $(DOCKERHUB_USER_NAME)/golang-product-service:latest workloads/apps-src/golang-app
 	docker push $(DOCKERHUB_USER_NAME)/golang-product-service:latest
 	@echo "Building and pushing Python Product Info Service..."
-	docker build -t $(DOCKERHUB_USER_NAME)/python-product-info-service:latest apps-workload-cluster-1/apps-src/python-app
+	docker build -t $(DOCKERHUB_USER_NAME)/python-product-info-service:latest workloads/apps-src/python-app
 	docker push $(DOCKERHUB_USER_NAME)/python-product-info-service:latest
 	@echo "Successfully pushed images to Docker Hub."
 

@@ -323,8 +323,8 @@ Five S3 buckets (Loki, Tempo, Mimir blocks/ruler/alertmanager). The alertmanager
 | `docs/` | Deep-dive architectural decisions, trade-offs, and chart trap references |
 | `terraform/` | Multi-cluster and single-cluster EKS, VPC, AMP, S3, IAM |
 | `terraform/observability-cluster/helm-values/` | Loki / Tempo / Mimir / Grafana values, with the reasoning inline |
-| `apps-workload-cluster-1/` | Demo services, their manifests, the DaemonSet collector |
-| `observability-platform/k8s-manifests/` | Gateway, NLB, Grafana ingress, dashboards — the deployed platform |
+| `workloads/` | Demo services, their manifests, the DaemonSet collector |
+| `observability-platform/` | Gateway, NLB, Grafana ingress, dashboards — the deployed platform |
 | `observability-platform/onboarding/` | Onboarding contract, 4 levels of instrumentation, multi-runtime CR |
 | `observability-platform/gateway-policies/` | Multi-tenant routing and tail-sampling budgeting policy templates |
 | `observability-platform/dashboards-and-alerts/` | Golden signals dashboards, PrometheusRule generator chart, META_MONITORING.md |
@@ -338,7 +338,7 @@ Five S3 buckets (Loki, Tempo, Mimir blocks/ruler/alertmanager). The alertmanager
 ```text
 docs/                               # deep-dive architectural decisions, trade-offs, and chart traps
   architectural-decisions.md
-apps-workload-cluster-1/            # app-team-owned; reason about it as its own repo
+workloads/                          # app-team-owned; reason about it as its own repo
   apps-src/
     golang-app/                     # Go service, programmatic OTel SDK (telemetry.go)
     python-app/                     # Python service, Operator auto-instrumentation

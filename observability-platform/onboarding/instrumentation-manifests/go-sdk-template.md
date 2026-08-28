@@ -12,7 +12,7 @@ OTEL_RESOURCE_ATTRIBUTES=service.name=<name>,service.namespace=<namespace>,servi
 The demo implementation is:
 
 ```text
-apps-workload-cluster-1/apps-src/golang-app/telemetry.go
+workloads/apps-src/golang-app/telemetry.go
 ```
 
 For a real platform, publish an internal Go module such as:
