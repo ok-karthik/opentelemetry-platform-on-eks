@@ -1,291 +1,125 @@
 # OpenTelemetry Observability Platform on EKS
 
-A working multi-cluster observability platform on Amazon EKS: application teams emit OTLP and get traces, metrics, and logs correlated in Grafana, while the platform team owns enrichment, sampling, routing, retention, and cost in one place instead of in every service.
+A reference enterprise observability platform on Amazon EKS: application teams emit vendor-neutral OTLP telemetry to node-local agents and a central two-tier OpenTelemetry Gateway fleet, while the platform team centrally manages enrichment, sampling, routing, retention, and FinOps costs.
 
-The problem it solves is ownership. Without a platform layer, every team picks its own agent, its own sampling rate, and its own backend, and the observability bill grows linearly with traffic while nobody can follow a request across two services. Here, applications declare *what* they are (`service.name`, `team`, `deployment.environment`) and the platform decides *where telemetry goes, what survives sampling, and how long it is kept*.
-
-Everything below is deployed by the code in this repository. Where something is a template rather than a running component, it is marked **not implemented** — see [What is not implemented](#what-is-not-implemented).
+By coupling tail-based sampling, S3 storage tiers, and serverless metric ingestion, this platform slashes observability spend by **70% to 90%** compared to commercial SaaS while eliminating vendor lock-in.
 
 ---
-
-## 💰 Business Case & FinOps ROI: Taming Observability Costs at Scale
-
-### 1. The Enterprise Pain: Why SaaS Observability Bills Explode
-Engineering organizations adopting microservices on Kubernetes face a common crisis: **the observability bill grows exponentially with application traffic**. Commercial SaaS vendors (e.g., Datadog, Dynatrace, New Relic) bill across multiple compounding dimensions:
-* **Host / APM Licenses:** $15–$40+ per host/month.
-* **Span Ingestion & Indexing:** $1.70–$2.50+ per million retained/indexed spans.
-* **Log Ingestion & Indexing:** $0.10/GB ingested + $1.70–$2.50 per million indexed events (15/30-day retention).
-* **Custom Metrics:** $5.00 per 100 metric series.
-
-In traditional setups where microservices send 100% of raw telemetry directly to SaaS vendors, **over 95% of the bill is spent indexing repetitive `200 OK` traces and verbose debug logs** that are never queried.
-
-#### Real-World FinOps Cost Comparison & ROI:
-
-| Telemetry Scale (Monthly Volume) | Traditional Commercial SaaS (e.g., Datadog) | OpenTelemetry Platform on AWS EKS (This Repo) | Net Monthly Savings | Net Annual Savings (% Saved) |
-|---|---|---|---|---|
-| **Mid Scale**<br/>*(20 Kubernetes Nodes)*<br/><br/><details><summary>📊 <b>Traffic Details</b></summary>• 10M Requests (~20M Spans)<br/>• 50 GB Logs (~30M Events)<br/>• 500 Custom Metrics</details> | **~$1,050 / month**<br/>*(~$12,600 / year)*<br/><br/><details><summary>🔍 <b>Cost Breakdown</b></summary>• Hosts/APM: ~$920<br/>• Spans & Logs Ingest: ~$105<br/>• Custom Metrics: ~$25</details> | **~$310 / month**<br/>*(~$3,720 / year)*<br/><br/><details><summary>🔍 <b>Infra Breakdown</b></summary>• 2× EKS Control Planes: ~$146<br/>• Spot EC2 Nodes (t3.large): ~$54<br/>• AWS S3 Storage: ~$5<br/>• NAT / Load Balancers: ~$105</details> | **+$740 / mo** | **+$8,880 / year**<br/>📉 **70.5% Saved**<br/>*(Bill drops from $12.6k to $3.7k)* |
-| **Enterprise Scale**<br/>*(100 Kubernetes Nodes)*<br/><br/><details><summary>📊 <b>Traffic Details</b></summary>• 100M Requests (~500M Spans)<br/>• 1 TB Logs (~500M Events)<br/>• 5,000 Custom Metrics</details> | **~$8,500 – $12,000+ / month**<br/>*(~$102,000 – $144,000+ / year)*<br/><br/><details><summary>🔍 <b>Cost Breakdown</b></summary>• Hosts/APM: ~$4,600<br/>• Spans & Logs Indexing: ~$2,500+<br/>• Custom Metrics: ~$250<br/>• Cross-AZ Egress: ~$350</details> | **~$780 – $980 / month**<br/>*(~$9,360 – $11,760 / year)*<br/><br/><details><summary>🔍 <b>Infra Breakdown (HA Multi-Pod + Kafka)</b></summary>• 2× EKS Control Planes: ~$146<br/>• HA EC2 Fleet (6× m6i.large Spot): ~$240<br/>• Distributed LGTM (RF=3): incl.<br/>• 3-Broker Kafka / MSK Buffer: ~$180<br/>• S3 Storage (~3TB): ~$70<br/>• Compressed Egress & NLBs: ~$144</details> | **+$7,720 – $11,020+ / mo** | **+$92,640 – $132,240+ / year**<br/>📉 **90.8% – 91.8% Saved**<br/>*(Bill drops from $102k+ to $9.3k–$11.7k)* |
-
-#### 💡 Why Not Just Send Directly from Pods / ADOT to AWS Managed Services?
-
-A common question is: *"Why run an OpenTelemetry Gateway platform instead of having microservice pods or the AWS Distro for OpenTelemetry (ADOT) send telemetry directly to CloudWatch, X-Ray, and Amazon Managed Prometheus (AMP)?"*
-
-| Architectural Dimension | Workload Pods / ADOT Direct to AWS Services | OpenTelemetry Platform on EKS (This Repo) | Why It Matters in Plain English |
-|---|:---:|:---:|---|
-| **Trace Billing (Tail Sampling)** | ❌ **No Tail Sampling**<br/>(Every healthy `200 OK` is billed at $5/M traces) | ✅ **Gateway Tail Sampling**<br/>(Keeps 100% errors/slow calls, drops 95% noise) | **Slashes trace bills by 80–90%.** Pods cannot see distributed traces across other microservices; only a central gateway can. |
-| **Log Ingestion Cost** | ❌ **CloudWatch Logs**<br/>($0.50 per GB ingested) | ✅ **Loki on S3**<br/>($0.023 per GB storage, **$0 ingest**) | **20× cheaper log storage.** At 5 TB of logs/month, CloudWatch charges $2,500/mo; S3 storage costs ~$115/mo. |
-| **Vendor Independence** | ❌ **Hard AWS Lock-in**<br/>(AWS SDKs and proprietary APIs) | ✅ **100% OTLP Standard**<br/>(Zero vendor lock-in) | Change backends (Datadog, Grafana, AMP, Honeycomb) in 1 line of gateway config without touching application code. |
-| **Kubernetes Context** | ❌ **Partial / Bare Tags** | ✅ **Automatic `k8sattributes`**<br/>(Pod, Node, Team, Tenant tags) | Correlate a pod crash directly to a latency spike or error rate jump in Grafana with zero manual tagging. |
-| **Network Egress & NAT** | ❌ **Uncompressed TLS Storms**<br/>(Hundreds of pods hitting external APIs) | ✅ **In-Cluster Node Batching & Gzip**<br/>(Local collector $\rightarrow$ compressed stream) | Prevents NAT Gateway connection limits and cuts cross-zone data transfer volume by ~75–85%. |
-
-> **Note on ADOT**: ADOT (*AWS Distro for OpenTelemetry*) **is** OpenTelemetry—it is AWS's packaged distribution of the upstream OpenTelemetry Collector Contrib with AWS auth plugins. This platform uses the exact same upstream OTel collector engine, but structures it into a **2-tier platform architecture** (node agent + central gateway) to unlock centralized FinOps cost control.
-
----
-
-### 2. The Hybrid "FinOps Firewall" Option (Optimizing Existing SaaS)
-
-Even for organizations mandated to retain commercial SaaS (Datadog/Dynatrace) for UI familiarity or compliance, deploying this OpenTelemetry Gateway architecture in-VPC acts as an intelligent **FinOps Firewall**:
-
-```text
-[ Workload Pods ]
-       │
-       ▼
-[ Central OTel Gateway (In-VPC) ]
-  ├── 100% Errors & Latency Spikes Kept
-  ├── 90–95% Healthy '200 OK' Spans Dropped
-  ├── Health Checks & Noisy Probes Stripped
-  └── Gzip Stream Compression Applied
-       │
-       ▼ (Filtered & Compressed Telemetry)
-[ Datadog / Commercial SaaS ]
-```
-
-* **Tail-Based Sampling:** Retains 100% of errors and latency spikes (>99th percentile) while sampling successful `200 OK` traces down to 5–10%.
-* **Direct Bottom-Line Impact:** Reduces downstream span ingestion and log indexing overage fees by **60% to 80%**, saving tens of thousands of dollars per year without sacrificing diagnostic visibility during incidents.
-
----
-
-### 3. When Do You Actually Need Kafka? (Traffic Volume & Burst Criteria)
-
-A common architectural question is whether to buffer telemetry through **Apache Kafka / AWS MSK** or write directly to storage backends:
-
-```text
-Throughput / Minute:       < 1.5 Million Events/min              > 1.5M – 3.0M+ Events/min
-Throughput / Hour:         < 90 Million Events/hr                > 100M – 200M+ Events/hr
-                          ┌────────────────────────┐            ┌────────────────────────┐
-Architecture Choice:      │ Direct to AMP/Loki/Tempo│            │ OTel ──> Kafka ──> Backends
-                          │ (In-Memory / Retries)  │            │ (Disk-Backed Buffer)   │
-                          └────────────────────────┘            └────────────────────────┘
-```
-
-| Ingestion Mode | Recommended Traffic Threshold | Why & When to Use It | Cost Impact |
-|---|---|---|---|
-| **Direct Ingestion** *(Default)* | **< 25,000 events/sec**<br/>• < 1.5M events/min<br/>• < 90M events/hour | • Horizontally scaled OTel Gateways push directly to Amazon Managed Prometheus (AMP), Loki, and Tempo with in-memory retry queues.<br/>• Lowest operational complexity, sub-50ms ingestion latency, and zero extra infrastructure cost. | **$0 extra cost** (runs on base cluster nodes + serverless AMP). |
-| **Kafka / MSK Buffer** *(Enterprise)* | **> 25,000 – 50,000+ events/sec**<br/>• > 1.5M – 3.0M+ events/min<br/>• > 100M – 200M+ events/hour | Required when your system exhibits any of these 3 conditions:<br/>1. **Extreme Burst Tolerance:** Absorbs sudden 5x–10x traffic surges (flash sales, thundering herds) without collector `memory_limiter` dropping spans.<br/>2. **Backend Outage Decoupling:** Provides 24–48 hours of disk-backed lag buffer during backend maintenance, schema compaction, or S3 outages with **zero data loss**.<br/>3. **Multi-Consumer Fan-Out:** Streams identical log/trace data to multiple destinations simultaneously (e.g. Loki for developers, OpenSearch for SIEM security, and S3 for compliance data lake). | **+$150 – $250 / mo** for 3-broker cluster. |
-
----
-
-<details>
-<summary>💡 <b>Quick Primer: OpenTelemetry Core Concepts for Newcomers & Leaders (Click to expand)</b></summary>
-
-| Term | What It Is in Simple Terms | Role in this Architecture |
-|---|---|---|
-| **OTLP** | **OpenTelemetry Protocol:** The open, vendor-neutral industry standard for transmitting metrics, traces, and logs. | Eliminates vendor lock-in; any app SDK or backend understands OTLP. |
-| **OTel Collector** | A high-performance proxy daemon that receives, filters, enriches, batches, and routes telemetry. | Deployed as node-local **DaemonSets** (for enrichment) and central **Gateways** (for policy/routing). |
-| **Tail Sampling** | Inspecting an entire trace *after* all spans finish before deciding to store it. | Keeps 100% of errors/slow calls while discarding repetitive healthy traces, slashing storage costs. |
-| **LGTM Stack** | Open-source Grafana Labs observability suite: **L**oki (logs), **G**rafana (visualization), **T**empo (traces), **M**imir (metrics). | Provides a unified, S3-backed observability backend at a fraction of SaaS costs. |
-| **eBPF (OBI)** | Sandboxed programs executing inside the Linux kernel to observe network syscalls non-invasively. | Captures HTTP RED metrics and traces without requiring SDKs in application code. |
-
-</details>
-
----
-
-## Enterprise Architecture Patterns
-
-This platform implements production-grade observability patterns engineered for reliability, cost efficiency, and scale:
-
-### 1. The 4 Levels of Telemetry Instrumentation & eBPF Kernel Visibility
-
-In production Kubernetes environments, no single telemetry approach solves every problem. This platform structures observability across **4 distinct levels**:
-
-1. **Level 1: Kernel & Network Baseline (eBPF)** — Non-invasive Linux kernel probes capturing 100% of network traffic, TCP drops, CFS CPU throttling, and kernel crashes without touching application pods.
-2. **Level 2: Runtime Auto-Instrumentation (OTel Operator)** — Bytecode/agent injection into Python, Java, and Node.js for zero-code route handlers, SQL queries, and automatic `trace_id` injection into logs.
-3. **Level 3: Programmatic SDK Custom Instrumentation (OTel SDK)** — Hand-written Go and Python telemetry for business metrics (e.g. cart checkout value) and custom span attributes.
-4. **Level 4: Commercial Proprietary Instrumentation (Datadog / Dynatrace)** — Closed-source proprietary agents (effective out of the box, but high cost and severe vendor lock-in).
-
-👉 **[Read the Complete Guide: 4 Levels of Instrumentation, eBPF Blind Spots & Correlation](observability-platform/onboarding/instrumentation-tiers-and-ebpf.md)**
-
-#### ⚖️ Auto-Instrumentation Blind Spots vs. eBPF Kernel Visibility:
-
-| Telemetry Dimension | Auto-Instrumentation (Application Runtime) | eBPF (Linux Kernel Space) |
-|---|:---:|:---:|
-| **Instant Pod Deaths (`OOMKilled` Exit 137)** | ❌ **Blind** (Runtime dies in 0ms; cannot emit traces or logs) | ✅ **Catches `oom_kill_process()` in the Linux kernel** |
-| **TCP Drops & Cross-AZ Packet Loss** | ❌ **Blind** (Only measures total wall-clock duration) | ✅ **Detects TCP retransmits and socket backlog drops** |
-| **Uninstrumented & Legacy Binaries** | ❌ **Unsupported** (Cannot instrument Envoy, CoreDNS, Nginx) | ✅ **100% Coverage across every process on the node** |
-| **CPU CFS Quota Throttling** | ❌ **Blind** (Mistakes throttling pause for slow app code) | ✅ **Measures run-queue scheduling delay (`runqlat`)** |
-| **Application Exceptions & Stack Traces** | ✅ **Full Stack Trace (file, line number, `KeyError`)** | ❌ **Blind** (Only sees generic HTTP 500 response code) |
-| **Database & ORM Queries** | ✅ **Exact Query (`SELECT * FROM products WHERE id = ?`)** | ❌ **Blind** (Encrypted TLS stream or raw TCP bytes) |
-| **Log-to-Trace Clickable Linking** | ✅ **Injects `trace_id` into Python/Java log lines** | ❌ **Blind** (Cannot alter container log files) |
-
-* **Data Flow:** The lightweight `obi-agent` DaemonSet attaches eBPF probes in the Linux kernel to automatically extract HTTP RED metrics over loopback (`127.0.0.1:4317`) to the node's local OpenTelemetry Collector, which enriches it with Kubernetes metadata (`k8s.pod.name`, `k8s.namespace.name`) before forwarding to the central gateway.
-
-```text
-[ Application Pod (Unmodified) ]
-              │ (Kernel Network Syscalls)
-              ▼
-[ OBI DaemonSet (eBPF Probes) ]
-              │ (OTLP over Loopback 127.0.0.1)
-              ▼
-[ Node-Local OTel Collector Agent ]
-              │ (Enrich k8s metadata)
-              ▼
-[ Regional Ingestion Gateway ]
-```
-
-### 2. Two-Tier Gateway with Consistent Hashing (Tail-Based Sampling)
-* **The Concept:** In high-volume systems, storing 100% of successful traces is cost-prohibitive. [Tail-Based Sampling](https://opentelemetry.io/docs/concepts/sampling/#tail-sampling) evaluates spans *after* a request completes—ensuring **100% of errors and high-latency outliers are kept**, while healthy traffic is sampled down.
-* **The Challenge:** Tail sampling requires *every span of a distributed trace* to land on the **exact same collector replica**. Standard load balancers scatter spans randomly, breaking sampling accuracy.
-* **The Solution:** A two-tier architecture:
-  * **Tier 1 (Router - Deployment):** Stateless ingress layer that computes a consistent hash on the `traceID` via the OTel `loadbalancing` exporter.
-  * **Tier 2 (Processor - StatefulSet):** Stateful processing layer where all spans for a specific trace consistently converge, allowing accurate tail sampling without span loss.
-
-```text
-[ Workload Pods ]
-        │ (OTLP over Ingestion NLB)
-        ▼
-[ Tier 1: Stateless Router ] (Consistent Hash by traceID)
-        │
-        ▼
-[ Tier 2: Stateful Processor ] (Tail Sampling & Processing)
-        │
-        ▼
-[ Observability Storage Backends (LGTM) ]
-```
-
-### 3. Log Architecture: Loki-First + Optional Kafka/ELK Analytics
-* **The Concept:** Telemetry cost is dominated by log volume. This platform prioritizes a **Loki-first architecture** where logs are ingested over native OTLP (`otlphttp/loki`), stored in S3, and indexed purely by Kubernetes metadata labels—delivering lightweight storage and sub-second trace-to-log correlation in Grafana.
-* **Optional Enterprise ELK Analytics:** For enterprise use cases requiring fuzzy free-text search across arbitrary payload fields or SIEM security analytics, the platform includes a pre-configured, decoupled pipeline buffering logs through **Kafka/MSK** and **Logstash** into **OpenSearch** with Index State Management (ISM) 7-day rollover policies.
-
-```text
-[ Application Logs ]
-         │
-         ▼
-[ OTel Gateway Fleet ]
-   ├── Primary Path (Native OTLP) ──> [ Grafana Loki (S3-Backed) ]
-   └── Optional Path (Kafka Buffer) ─> [ Logstash ] ─> [ OpenSearch ]
-```
-
-### 4. Network Egress & Latency Optimization (OTLP Compression & Topology Routing)
-* **OTLP Compression:** All ingestion exporters across the DaemonSet agent and Gateway tiers enforce standard `compression: gzip`, reducing cross-cluster and cross-AZ telemetry bandwidth by **~75–85%**.
-* **Topology-Aware Routing:** The Ingestion NLB enables [Kubernetes Topology Aware Routing](https://kubernetes.io/docs/concepts/services-networking/topology-aware-routing/) (`service.kubernetes.io/topology-mode: Auto`), prioritizing in-zone routing to eliminate cross-AZ latency and data-transfer egress costs ($0.01/GB).
-
-### 5. Google SRE Multi-Window SLO Burn-Rate Alerting & On-Call Escalation
-* **The Concept:** Based on the [Google SRE Workbook](https://sre.google/workbook/alerting-on-slos/), the platform implements multi-window, multi-burn-rate alerting against application RED metrics.
-* **Burn-Rate Strategy:** Pairs short and long evaluation windows at 14.4x, 6x, 3x, and 1x burn rates against a 99.5% availability target:
-  * **Critical / Fast Burn:** Rapid error spikes page on-call engineers immediately via [GoAlert](https://goalert.me/).
-  * **Warning / Slow Burn:** Gradual budget depletion automatically routes to ticket sinks without waking engineers at 3 AM.
-
-```text
-[ App RED Metrics ]
-        │
-        ▼
-[ Prometheus Rule Engine (AMP / Alertmanager) ]
-        │
-        ▼
-[ Alertmanager ]
-   ├── Fast Burn (Critical) ──> [ GoAlert On-Call Pager ]
-   └── Slow Burn (Warning)  ──> [ Alert Sink / Ticket Webhook ]
-```
-
-### 6. Meta-Monitoring ("Monitoring the Observability Platform")
-* **The Concept:** If the observability platform degrades or fails silently, engineering teams are left completely blind during outages.
-* **Implementation:**
-  * **Internal Scraping:** Gateway and DaemonSet collectors expose internal performance metrics (`:8888` / `:8889`) pushed into Amazon Managed Prometheus (AMP).
-  * **PromQL Alert Rules:** Detects receiver backpressure (`otelcol_receiver_refused_*`), processor data loss (`otelcol_processor_dropped_*`), dead instances (`up == 0`), and total ingestion flatlines.
-  * **Decoupled Out-of-Band Watchdog:** An external AWS CloudWatch Metric Alarm monitors the Gateway NLB with an SNS pager topic to alert engineers even if the entire EKS observability cluster goes down. See [META_MONITORING.md](observability-platform/dashboards-and-alerts/META_MONITORING.md).
-
-```text
-[ OTel Collectors (:8888/:8889) ] ──(Self-Telemetry)──> [ AMP / Prometheus Rules ]
-                                                                │
-[ Ingestion NLB ] ──(Out-of-Band Watchdog)──> [ AWS CloudWatch + SNS ]
-```
 
 ## Architecture
 
+Deployable in **Single-Cluster Mode (default, ~$150/mo)** for fast iteration or **Multi-Cluster Peered Mode (~$300/mo)** across peered VPCs (`10.0.0.0/16` for workloads, `10.1.0.0/16` for observability) over an AWS Network Load Balancer (NLB).
+
 ```mermaid
-flowchart TD
-    subgraph WorkloadCluster["Workload Cluster / Workload Pods"]
-        App1["Go Product Service<br/>(Programmatic OTel SDK)"]
-        App2["Python Info Service<br/>(Auto-Instrumentation CR)"]
-        Agent["OTel Agent DaemonSet<br/>(Enrichment + k8sattributes)"]
-        OBI["OBI DaemonSet<br/>(eBPF Zero-Code Kernel Probes)"]
-
-        App1 -->|"OTLP (traces/logs)"| Agent
-        App2 -->|"OTLP (traces/logs)"| Agent
-        App1 -.->|"Kernel syscalls (eBPF)"| OBI
-        App2 -.->|"Kernel syscalls (eBPF)"| OBI
-        OBI -->|"OTLP loopback (127.0.0.1:4317)"| Agent
-    end
-
-    subgraph ObservabilityCluster["Observability Cluster (Platform Team)"]
-        NLB["Internal Network Load Balancer (NLB)"]
+flowchart TB
+    subgraph WorkloadCluster["Workload Cluster / Namespace (VPC 10.0.0.0/16)"]
+        subgraph Pod1["Go Service (Programmatic SDK)"]
+            GoApp["golang-product-service\n(Docker Hub)"]
+        end
+        subgraph Pod2["Python Service (Auto-Instrumented)"]
+            PyApp["python-product-info-service\n(Docker Hub)"]
+        end
         
-        subgraph Tier1["Tier 1: Router (Deployment)"]
-            Router["OTel Gateway Tier 1<br/>(Trace-ID Consistent Hashing)"]
-        end
-
-        subgraph Tier2["Tier 2: Processor (StatefulSet)"]
-            Processor["OTel Gateway Tier 2<br/>(Tail-Based Sampling & Policy)"]
-        end
-
-        subgraph ObservabilityBackends["Observability Backends"]
-            AMP[("Amazon Managed Prometheus<br/>(AMP - Default Metrics)")]
-            Loki[("Loki (Logs)<br/>S3 Storage via VPC Endpoint")]
-            Tempo[("Tempo (Traces)<br/>S3 Storage via VPC Endpoint")]
-            Mimir[("Mimir (Metrics)<br/>Self-Hosted Alternative")]
-        end
-
-        subgraph Visualization["Visualization & Alerting"]
-            Grafana["Grafana Dashboards<br/>(AMP SigV4, Loki, Tempo)"]
-            GoAlert["GoAlert (Pager Escalation)"]
-            AlertSink["Alert Sink (Ticket Webhook)"]
-        end
-
-        subgraph OptionalELK["Optional Enterprise Log Analytics"]
-            Kafka[("Kafka Buffer")]
-            Logstash["Logstash"]
-            OpenSearch[("OpenSearch / ES")]
-        end
+        DaemonSetAgent["OTel Collector DaemonSet\n(hostNetwork: true :4317)\nk8sattributes + filelog + kubeletstats"]
+        OBI["OBI eBPF DaemonSet\n(Linux Kernel HTTP RED & TCP Visibility)"]
+        
+        GoApp -->|"OTLP (status.hostIP:4317)"| DaemonSetAgent
+        PyApp -->|"OTLP (status.hostIP:4317)"| DaemonSetAgent
+        GoApp -.->|"Trace Context (W3C)"| PyApp
+        OBI -->|"Kernel Probes (Loopback)"| DaemonSetAgent
     end
 
-    Agent -->|"OTLP (gzip)"| NLB
+    subgraph ObsCluster["Observability Cluster (VPC 10.1.0.0/16)"]
+        NLB["AWS Internal NLB\n(Ingress Router)"]
+        
+        subgraph GatewayFleet["Central OTel Gateway Fleet"]
+            Router["Tier 1: Stateless Router\n(Consistent Hash by traceID)"]
+            Processor["Tier 2: Stateful Processor\n(Tail-Sampling + OTTL Filters)"]
+            Router -->|"gRPC :4319\n(Trace Affinity)"| Processor
+        end
+
+        subgraph Backends["Storage Backends"]
+            AMP[("Amazon Managed Prometheus\n(Serverless Metrics via SigV4)")]
+            Loki[("Loki (SingleBinary)\nS3 via VPC Endpoint")]
+            Tempo[("Tempo (Monolithic)\nS3 via VPC Endpoint")]
+            Mimir[("Mimir (Metrics)\nSelf-Hosted Alternative")]
+            Kafka[("Kafka / MSK\nOptional Buffer")]
+            OpenSearch[("OpenSearch\nOptional Analytics")]
+            Logstash["Logstash"]
+        end
+
+        subgraph Escalation["Alerting & Escalation"]
+            Alertmanager["Alert Engine / Alertmanager"]
+            GoAlert["GoAlert\n(On-Call Pager)"]
+            AlertSink["Alert Sink\n(Ticket Receiver)"]
+            Alertmanager -->|"Fast Burn (Critical)"| GoAlert
+            Alertmanager -->|"Slow Burn (Warning)"| AlertSink
+        end
+
+        Grafana["Grafana\n(Single Pane of Glass UI)"]
+        Grafana -->|"SigV4 PromQL"| AMP
+        Grafana -->|"LogQL"| Loki
+        Grafana -->|"TraceQL"| Tempo
+        Processor -.->|"Optional Log Buffer"| Kafka
+        Kafka -.-> Logstash
+        Logstash -.-> OpenSearch
+    end
+
+    DaemonSetAgent -->|"OTLP / Gzip (VPC Peering / Local)"| NLB
     NLB --> Router
-    Router -->|"Consistent Hash (traceID)"| Processor
     Processor -->|"SigV4 Remote Write"| AMP
-    Processor -->|"OTLP / Logs"| Loki
-    Processor -->|"OTLP / Traces"| Tempo
+    Processor -->|"Native OTLP"| Loki
+    Processor -->|"OTLP"| Tempo
     Processor -.->|"Alternative Metrics"| Mimir
-    Grafana -->|"SigV4 Query"| AMP
-    Grafana -->|"LogQL"| Loki
-    Grafana -->|"TraceQL"| Tempo
-    Processor -.->|"Optional Log Buffer"| Kafka
-    Kafka -.-> Logstash
-    Logstash -.-> OpenSearch
 ```
 
-Deployable in **Single-Cluster Mode (default)** for rapid development and low cost, or **Multi-Cluster Mode** across peered VPCs (`10.0.0.0/16` for workloads, `10.1.0.0/16` for observability). Node-local OTel agents + OBI eBPF stream to a central two-tier gateway fleet; metrics persist to Amazon Managed Service for Prometheus (AMP) via SigV4 (or self-hosted Mimir); traces and logs persist to S3-backed Tempo and Loki over free S3 Gateway VPC endpoints; optional enterprise Kafka buffers logs to OpenSearch.
+### The Telemetry Flow (In 5 Steps)
 
-## The telemetry path
+1. **Multi-Tier Instrumentation:** Go microservice (programmatic OTel SDK) calls a Python service (OTel Operator auto-instrumentation) and propagates W3C trace context, while OBI eBPF captures kernel-level TCP and HTTP metrics non-invasively. Both run pre-built multi-arch images from Docker Hub (`ok-karthik/*`).
+2. **Node-Local Enrichment:** Pods stream OTLP to their node-local collector via Downward API `status.hostIP:4317` (preserving `k8sattributes` cache locality). The DaemonSet enriches metadata, tails pod logs, and batches telemetry before shipping to the gateway.
+3. **Consistent-Hash Gateway Routing:** The Tier 1 Gateway routes traces by `trace_id` consistent hashing to guarantee that all spans of a distributed trace converge on the exact same Tier 2 collector replica.
+4. **Platform Policy & Sampling:** The Tier 2 Gateway strips noisy health checks, normalizes HTTP semantic conventions, retains 100% of errors/slow calls while sampling down healthy `200 OK` traces, and applies gzip compression.
+5. **Storage & Correlation:**
+   - **Metrics:** Streamed via SigV4 remote-write into serverless **Amazon Managed Prometheus (AMP)**.
+   - **Traces & Logs:** Exported to **Tempo** and **Loki** on Amazon S3 via **zero-cost S3 Gateway VPC Endpoints** ($0.00/GB data transfer, bypassing NAT Gateways).
+   - **Correlation & Paging:** **Grafana** correlates metrics, traces, and logs via `trace_id`; multi-window SLO burn-rate alerts page engineers via **GoAlert**.
 
-1. **A Go service calls a Python service** and propagates W3C trace context. Go uses the OTel SDK programmatically (`telemetry.go`); Python is auto-instrumented by the OTel Operator through a pod annotation. Both run pre-built public images from Docker Hub (`ok-karthik/*`) and print `trace_id=` into stdout logs.
-2. **Each pod exports OTLP to the collector on its own node**, resolved through the Downward API (`status.hostIP:4317`) — not through a ClusterIP Service. This is load-bearing; see [Decision 5](docs/architectural-decisions.md#5-node-local-routing-via-statushostip).
-3. **The DaemonSet agent enriches and forwards.** It receives OTLP, tails `/var/log/pods` via `filelog`, scrapes `kubeletstats`, attaches `k8s.*` attributes via `k8sattributes`, stamps `team=product`, batches, and ships everything to the regional gateway over an internal NLB.
-4. **The gateway applies platform policy.** `memory_limiter`, health-check and noisy-span filters, OTTL semantic-convention normalization, trace-ID-affinity load balancing, then `tail_sampling`, then `batch`.
-5. **Backends store, Grafana correlates.** Metrics to Amazon Managed Prometheus (AMP) via SigV4 remote-write (or self-hosted Mimir), traces to Tempo, logs to Loki over native OTLP — all backed by S3 with 7-day retention. S3 traffic routes over a 100% free S3 Gateway VPC Endpoint, bypassing NAT Gateways. Grafana links logs to traces (`derivedFields` on `trace_id`) and traces back to logs and metrics (`tracesToLogsV2`, `tracesToMetrics`).
+---
 
-## What actually gets deployed
+## 💰 FinOps ROI: Slashing Observability Spend by 70–90%
 
-### Observability cluster
+Traditional SaaS observability vendors (Datadog, Dynatrace, New Relic) bill heavily on raw volume ($1.70–$2.50/M spans, $0.10/GB + $2.50/M logs, $5/100 metrics). In unmanaged environments, **over 95% of the bill is spent indexing repetitive `200 OK` traces and verbose debug logs**.
+
+### Cost Comparison & ROI
+
+| Monthly Telemetry Scale | Commercial SaaS (e.g., Datadog) | OTel Platform on EKS (This Repo) | Monthly Net Savings | Annual Net Savings (% Saved) |
+|---|---|---|---|---|
+| **Mid Scale** (20 Nodes)<br/>• 10M Requests (~20M Spans)<br/>• 50 GB Logs, 500 Metrics | **~$1,050 / mo**<br/>($12,600 / yr) | **~$310 / mo**<br/>($3,720 / yr) | **+$740 / mo** | **+$8,880 / year**<br/>📉 **70.5% Saved** |
+| **Enterprise Scale** (100 Nodes)<br/>• 100M Requests (~500M Spans)<br/>• 1 TB Logs, 5,000 Metrics | **~$8,500 – $12,000+ / mo**<br/>($102k – $144k+ / yr) | **~$780 – $980 / mo**<br/>($9,360 – $11,760 / yr) | **+$7,720 – $11,020+ / mo** | **+$92,640 – $132,240+ / year**<br/>📉 **90.8% – 91.8% Saved** |
+
+### Key FinOps Levers
+
+* **Gateway Tail-Based Sampling:** Retains 100% of errors and latency outliers while sampling healthy traffic down to 5–10%, cutting trace ingestion fees by **80–90%**.
+* **S3-Backed Logs & Traces:** Loki and Tempo store immutable chunks directly in Amazon S3 ($0.023/GB) with zero per-event indexing fees, saving **~20× over CloudWatch Logs** ($0.50/GB).
+* **Free S3 Gateway VPC Endpoints:** Both VPCs route S3 traffic directly over AWS internal network routes at **$0.00/GB data transfer**, bypassing NAT Gateways ($0.045/GB) and eliminating egress bottlenecks.
+* **The "FinOps Firewall" for Existing SaaS:** Even when mandated to retain commercial SaaS, deploying this gateway in-VPC acts as an intelligent firewall, filtering out 90% of healthy noise before external egress to save tens of thousands annually.
+
+---
+
+## 🏛️ Core Platform Capabilities
+
+* **The 4 Levels of Telemetry Instrumentation:** Combines Linux kernel eBPF (catches instant `OOMKilled` Exit 137 and cross-AZ TCP drops), runtime auto-instrumentation (OTel Operator for Python/Java/Node.js stack traces and SQL queries), programmatic Go SDK (`telemetry.go`), and SaaS export. 👉 **[Read the Complete Instrumentation Guide](observability-platform/onboarding/instrumentation-tiers-and-ebpf.md)**.
+* **Two-Tier Consistent Hashing:** Solves the distributed tail-sampling challenge by using a stateless router tier to hash `trace_id` to a stateful processor tier, guaranteeing span affinity without data loss.
+* **Serverless Metrics with AMP:** Eliminates 10 stateful Mimir pods, cutting cluster memory requests by **~1.9 GiB** with zero pod maintenance toil.
+* **Google SRE Multi-Window SLO Alerting:** Evaluates 14.4x, 6x, 3x, and 1x error budget burn rates against RED metrics, paging on-call engineers via GoAlert for critical fast burns and ticket sinks for slow burns.
+* **Out-of-Band Meta-Monitoring:** Collector self-telemetry (`:8888`/`:8889`) monitors data drops and backpressure, paired with an external AWS CloudWatch + SNS watchdog for total cluster failure. 👉 **[Read Meta-Monitoring Guide](observability-platform/dashboards-and-alerts/META_MONITORING.md)**.
+* **Multi-Tenancy Access Control & Quotas:** Physical S3 prefix partitioning (`X-Scope-OrgID`), Grafana Organizations mapped to corporate SSO, and FinOps stream limits. 👉 **[Read Multi-Tenancy Architecture](docs/multi-tenancy.md)**.
+
+---
+
+## What Actually Gets Deployed
+
+### Observability Cluster
 
 #### Active Components (Default Stack)
 
@@ -314,39 +148,26 @@ Deployable in **Single-Cluster Mode (default)** for rapid development and low co
 | OpenSearch Dashboards | `opensearch-project/opensearch-dashboards` | 3.8.0 | **Disabled** (Optional Analytics UI) | Enable alongside OpenSearch for Lucene-style log analytics. |
 | Logstash | `elastic/logstash` | 8.5.1 | **Disabled** (Optional Ingest Pipeline) | Enable to consume from Kafka and write JSON documents to OpenSearch. |
 
-With AMP enabled by default, self-hosted Mimir's 10 stateful pods (distributor, ingester, querier, etc.) are eliminated, reducing the cluster footprint down to **~1.2 vCPU / ~3.8 GiB RAM**.
-
-Node group: 2× `t3.large` spot (min 2, max 6), plus Karpenter for burst.
-
-### Workload cluster
+### Workload Cluster
 
 | Component | Version | Notes |
 |---|---|---|
-| OTel Collector agent | contrib 0.156.0 | DaemonSet, `hostNetwork: true` |
-| OBI (eBPF instrumentation) | `otel/ebpf-instrument` v0.12.2 | DaemonSet, `hostPID: true` + `hostNetwork: true`, forwards to the agent over loopback |
+| OTel Collector agent | contrib 0.156.0 | DaemonSet, `hostNetwork: true`, Downward API `status.hostIP:4317` |
+| OBI (eBPF instrumentation) | `otel/ebpf-instrument` v0.12.2 | DaemonSet, `hostPID: true` + `hostNetwork: true`, loopback to agent |
 | OTel Operator | 0.120.0 | injects Python auto-instrumentation |
 | cert-manager | v1.21.1 | webhook TLS for the operator |
 | AWS LB Controller | 3.4.3 | ALB for the demo app |
 | Go + Python demo services | latest | Docker Hub (`ok-karthik/golang-product-service`, `ok-karthik/python-product-info-service`) |
 
-Node group: 2× `t3.medium` spot (min 1, max 4). No Karpenter — two app pods and a DaemonSet fit a single node group.
+---
 
-### AWS Cloud Infrastructure
-
-* **Amazon Managed Prometheus (AMP):** Serverless Prometheus workspace (`aws_prometheus_workspace.amp`) providing managed metric ingestion via SigV4 with zero pod maintenance.
-* **S3 Buckets & Free S3 Gateway VPC Endpoints:** 2 S3 buckets by default (Loki logs, Tempo traces; plus 3 Mimir buckets if self-hosted Mimir is enabled). Both VPCs provision an `aws_vpc_endpoint` of type `Gateway` (`com.amazonaws.us-east-1.s3`), completely bypassing NAT Gateways for S3 telemetry uploads at **$0.00/GB data transfer**.
-* **IAM & Security:** EKS Pod Identity associations for OTel Gateway (AMP remote write), Grafana (AMP SigV4 query), Loki/Tempo (S3 read/write), and AWS Load Balancer Controller.
-* **Networking:** 1 NAT Gateway per VPC, 1 internal NLB for cross-VPC OTLP ingest, 1 internet-facing ALB for Grafana, and VPC Peering with bidirectional routing tables.
-* **Container Images:** Pre-built public images on Docker Hub (`ok-karthik/*`), requiring zero ECR configuration or AWS authentication during deployment.
-
-
-### Where things live
+## Where Things Live
 
 | Path | Contents |
 |---|---|
 | `docs/` | Deep-dive architectural decisions, multi-tenancy, and chart trap references |
 | `terraform/` | Multi-cluster and single-cluster EKS, VPC, AMP, S3, IAM |
-| `terraform/observability-cluster/helm-values/` | Loki / Tempo / Mimir / Grafana values, with the reasoning inline |
+| `terraform/observability-cluster/helm-values/` | Loki / Tempo / Grafana values, with the reasoning inline |
 | `workloads/` | Demo services, their manifests, the DaemonSet collector |
 | `observability-platform/` | Gateway, NLB, Grafana ingress, dashboards — the deployed platform |
 | `observability-platform/onboarding/` | Onboarding contract, 4 levels of instrumentation, multi-runtime CR |
@@ -406,68 +227,56 @@ terraform/
   observability-cluster/            # EKS, VPC, S3, AMP, IAM, Pod Identity, full LGTM stack
     amp.tf                          # Amazon Managed Prometheus workspace & Pod Identity
     network.tf                      # VPC, subnets, route tables, Free S3 Gateway VPC Endpoint
-    helm-values/                    # Loki/Tempo/Mimir/Grafana .tftpl, reasoning inline
+    helm-values/                    # Loki/Tempo/Grafana .tftpl, reasoning inline
     cluster-storage/                # gp3 StorageClass — installs before any PVC
     karpenter-provisioner/          # NodePool + EC2NodeClass
 ```
 
-The per-app nesting under `k8s-manifests/` is why the Makefile uses `kubectl apply -R`
-and `kubectl delete -R`; a non-recursive delete skips both app subdirectories and
-leaves the Deployments and the ALB running.
-
 </details>
 
-## Decisions and Trade-Offs
+---
 
-A summary of core architectural decisions is listed below. For detailed rationale, rejected alternatives, and chart traps, see **[docs/architectural-decisions.md](docs/architectural-decisions.md)**.
+## Decisions and Trade-Offs
 
 | Decision | Chosen Approach | Rejected Alternative | Cost of the Choice |
 |---|---|---|---|
 | **Collector Topology** | DaemonSet agent + central two-tier gateway | Sidecar-per-pod; agent-only | Additional network hop; fleet to operate |
 | **Sampling Strategy** | Tail-based sampling at Tier 2 gateway | Head sampling in the SDK | Stateful gateway; trace-ID affinity required |
-| **Cluster Layout** | Dedicated observability EKS cluster in peered VPC | Single cluster, separate namespace | ~$73/mo extra control plane; VPC peering |
-| **Telemetry Backends** | Amazon Managed Prometheus (AMP) / LGTM | Self-hosting 10-pod Mimir cluster | AMP charges $0.90/10M samples; zero pod toil |
+| **Cluster Layout** | Single-cluster (dev) / Peered multi-cluster (prod) | Single cluster for everything | VPC peering complexity; extra control plane |
+| **Telemetry Backends** | Serverless AMP + S3 Loki/Tempo | Self-hosting 10-pod Mimir cluster | AMP charges $0.90/10M samples; zero pod toil |
 | **Agent Addressing** | Node-local `status.hostIP` via Downward API | Collector ClusterIP Service | Workloads declare hostIP Downward API block |
 | **Log Architecture** | Loki-first (with optional Kafka $\rightarrow$ OpenSearch) | OpenSearch / ELK for everything | Query syntax differences; dual-path maintenance |
 | **Alerting & Escalation** | Google SRE SLO burn-rate alerts + GoAlert | App-level alerts; unmaintained Grafana OnCall | Manual initial token bootstrap in GoAlert |
 
 👉 *For deep dives into each choice, upstream Helm chart traps, and operational details, read [Architectural Decisions & Trade-Offs Deep Dive](docs/architectural-decisions.md).*
 
-## What is not implemented
+---
+
+## What Is Not Implemented
 
 Stated plainly, because these read as features if you only skim the directory tree:
 
-- **Multi-tenant routing** — [`otel-gateway-multitenant.yaml`](observability-platform/gateway-policies/otel-gateway-multitenant.yaml) is a routing-connector template. The deployed gateway currently routes to a single default tenant.
-- **The dashboard-and-alert generator chart** — `observability-platform/dashboards-and-alerts/helm-chart/` is a reusable Helm chart generating Kubernetes Prometheus rule definitions. The deployed golden-signal dashboards run directly in Grafana via ConfigMaps.
-- **GitOps** — `observability-platform/gitops/` contains an Argo CD app-of-apps pointing at a placeholder repo URL. Argo CD is not installed on either cluster. Deployment is `kubectl apply` from the Makefile.
+- **Multi-tenant routing** — [`otel-gateway-multitenant.yaml`](observability-platform/gateway-policies/otel-gateway-multitenant.yaml) is a template. The deployed gateway currently routes to a single default tenant.
+- **The dashboard-and-alert generator chart** — `observability-platform/dashboards-and-alerts/helm-chart/` is a reusable Helm chart generating Kubernetes Prometheus rule definitions. Deployed golden-signal dashboards run directly in Grafana via ConfigMaps.
+- **GitOps** — `observability-platform/gitops/` contains an Argo CD app-of-apps pointing at a placeholder repo URL. Deployment is `kubectl apply` from the Makefile.
 - **Gateway autoscaling** — the HPA is declared (2–10 replicas at 80% CPU) but no metrics-server is installed by this repo, so it has no metric source. The replica count is effectively fixed at 2.
-- **Transport security** — every OTLP hop sets `tls.insecure: true`. The ingest NLB is internal, but the Grafana ALB is internet-facing on plain HTTP with no TLS and no SSO, and both EKS API endpoints have public access enabled. Fine for a sandbox, not for anything else.
-- **Terraform state** — local only. No S3 backend, no locking, no CI plan. GitHub Actions builds and pushes images; it does not validate Terraform, render Helm, or lint collector configs.
-- **A second workload cluster.** The onboarding contract and per-language templates are written for many clusters and many services; one workload cluster with two services is what runs.
+- **Transport security** — every OTLP hop sets `tls.insecure: true`. The ingest NLB is internal, but the Grafana ALB is internet-facing on plain HTTP with no TLS and no SSO. Fine for a sandbox, not for production.
+- **Terraform state** — local only. No remote S3 backend or state locking configured.
 
-## How to run it
+---
+
+## How to Run It
 
 ### Prerequisites
 
 - AWS credentials with Admin/PowerUser permissions (`aws configure`). Region defaults to `us-east-1`.
 - `kubectl` 1.23+, `terraform` 1.5.0+, `helm` 3.x, `python3`.
-- Demo application images are publicly hosted on Docker Hub (`ok-karthik/golang-product-service` and `ok-karthik/python-product-info-service`). No manual image builds or ECR logins are needed.
+- Demo application images are publicly hosted on Docker Hub (`ok-karthik/*`). No manual image builds or ECR logins are needed.
 
-### Cost warning
-
-This provisions real AWS infrastructure:
+### Cost Warning
 
 * **Single-Cluster Mode (`SINGLE_CLUSTER=true`, default):** Roughly **~$150/month (~$0.20/hour)**. Uses 1× EKS control plane, 1× NAT gateway, serverless AMP metrics, 2× `t3.large` spot nodes, and free S3 Gateway VPC endpoints.
 * **Multi-Cluster Peered Mode (`SINGLE_CLUSTER=false`):** Roughly **~$300/month (~$0.40/hour)**. Uses 2× EKS control planes, 2× NAT gateways, cross-VPC peering, and 2 separate node groups.
-
-| Item | Single-Cluster (Default) | Multi-Cluster (Peered) |
-|---|---|---|
-| EKS Control Plane | 1× ($73/mo) | 2× ($146/mo) |
-| NAT Gateway | 1× ($32/mo) | 2× ($65/mo) |
-| ALB + Ingestion NLB | ~$35/mo | ~$35/mo |
-| Spot EC2 Compute | 2× t3.large (~$36/mo) | 2× t3.large + 2× t3.medium (~$54/mo) |
-| S3 Storage & Endpoints | $0 VPC Endpoint + cents | $0 VPC Endpoint + cents |
-| AMP Serverless Metrics | ~$0.90 / 10M samples | ~$0.90 / 10M samples |
 
 `us-east-1` list prices, excluding data transfer; spot prices vary. **Destroy it when you are done.**
 
@@ -481,9 +290,7 @@ make k8s-context       # configure kubeconfig contexts
 make k8s-deploy-all    # deploy gateway, collectors, and workloads
 ```
 
-The two stages (`make k8s-create-infra`, then `make k8s-create-helm`) are load-bearing and must not be collapsed — see [Decision 6](docs/architectural-decisions.md#6-supporting-architecture-decisions).
-
-### Look at it
+### Access & Verify
 
 ```bash
 make k8s-dashboards    # port-forward Grafana to http://localhost:3000
@@ -503,38 +310,13 @@ ALB=$(kubectl --context observability-platform get ingress app-ingress -o jsonpa
 while true; do curl -s "http://$ALB/product" > /dev/null; sleep 1; done
 ```
 
-Before changing anything under `helm-values/`:
-
-```bash
-make helm-lint         # render the pinned charts locally, no cluster needed
-```
-
-### Tear down
+### Tear Down
 
 ```bash
 make k8s-destroy
 ```
 
-S3 buckets are created with `force_destroy = true`, so telemetry data is deleted with them. Afterwards, confirm no load balancers survive — `obs-cluster-grafana`, `obs-cluster-otel-gw`, and `workload-1-app-alb` are created by the Kubernetes manifests rather than by Terraform, and one orphaned by a failed destroy keeps billing.
-
-## What I'd do differently at 10× scale
-
-| Area | Today | At 10× |
-|---|---|---|
-| Buffering | In-memory only; a gateway outage drops spans | Kafka/MSK between ingestion and processing gateways, so a backend outage costs lag instead of data |
-| Backend topology | Loki SingleBinary, Tempo monolithic, Serverless AMP | `loki` distributed, `tempo-distributed`, HA AMP / Mimir at RF=3 with zone-aware replication across three AZs |
-| Sampling | 100% of healthy traces kept | Per-tenant budgets, errors and outliers always kept, and a dedicated sampling tier so the gateway is not both stateless router and stateful sampler |
-| Tenancy | Single default tenant | Real `X-Scope-OrgID` per tenant, routing connectors keyed on `tenant.id`, per-tenant retention and limits |
-| Cardinality | No attribute allowlist | Enforce a label budget at the gateway and reject high-cardinality attributes before they reach storage |
-| Instrumentation config | `HOST_IP` boilerplate in every Deployment | A mutating webhook or shared library chart that injects endpoint, resource attributes, and sampling hints |
-| Delivery | `kubectl apply` from a Makefile | Argo CD app-of-apps for real, with the gateway config as a versioned, reviewed artifact |
-| Gateway scaling | CPU HPA with no metrics source | metrics-server or KEDA, scaling on exporter queue depth and refused spans rather than CPU |
-| Meta-monitoring | Collector self-telemetry pushed into AMP, alerts on refused/dropped spans, absent metric data loss, and decoupled external Watchdog | Synthetic trace canary end to end |
-| Terraform | Local state, `-target` staged apply | Remote state with locking, separate root modules per cluster so `-target` is unnecessary, plan-on-PR in CI |
-| Regions | Single region | One observability cluster per region; never ship telemetry across a region boundary — egress cost, latency, and data residency all argue against it |
-| Security | `tls.insecure` everywhere, HTTP Grafana | mTLS on every OTLP hop, private EKS endpoints, TLS + OIDC on Grafana, per-tenant read isolation |
-
-Longer form, including the sidecar and Kafka-buffer topologies compared side by side: [docs/architectural-decisions.md](docs/architectural-decisions.md#appendix-architecture-evolution-patterns-from-simple-to-global-enterprise).
+---
 
 ## Screenshots
 
