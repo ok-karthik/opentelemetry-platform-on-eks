@@ -82,9 +82,21 @@ module "eks" {
   #    cluster: in-cluster DNS must be healthy before the cert-manager and OTel
   #    Operator webhook admission calls fire.
   cluster_addons = {
-    coredns                = { most_recent = true }
-    eks-pod-identity-agent = { most_recent = true }
-    metrics-server         = { most_recent = true }
+    coredns = {
+      most_recent                 = true
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
+    eks-pod-identity-agent = {
+      most_recent                 = true
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
+    metrics-server = {
+      most_recent                 = true
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
   }
 
   # 5. Enable access entries (Modern EKS auth)
