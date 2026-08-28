@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: python-app
-          image: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/python-product-info-service:latest
+          image: <IMAGE_REGISTRY>/python-product-info-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001

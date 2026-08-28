@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: golang-app
-          image: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/golang-product-service:latest
+          image: <IMAGE_REGISTRY>/golang-product-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

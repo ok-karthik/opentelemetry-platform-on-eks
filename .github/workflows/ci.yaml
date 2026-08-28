@@ -1,4 +1,4 @@
-name: Build and Push to ECR
+name: Build and Push to Docker Hub
 
 on:
   push:
@@ -8,64 +8,47 @@ on:
     branches:
       - main
 
-# Permissions required for OIDC federation (recommended best practice)
-permissions:
-  id-token: write
-  contents: read
-
 env:
-  AWS_REGION: us-east-1
   GOLANG_APP_REPO: golang-product-service
   PYTHON_APP_REPO: python-product-info-service
   APPS_SRC_DIR: apps-workload-cluster-1/apps-src
 
 jobs:
   build-and-push:
-    name: Build & Push Images
+    name: Build & Push Images to Docker Hub
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       # ==============================================================================
-      # Option A: Authenticate using AWS Secrets (Access Key ID & Secret Access Key)
+      # Authenticate to Docker Hub using GitHub Repository Secrets:
+      # - DOCKERHUB_USER_NAME
+      # - DOCKERHUB_USER_TOKEN
       # ==============================================================================
-      # - name: Configure AWS Credentials (IAM User Secrets)
-      #   uses: aws-actions/configure-aws-credentials@v6
-      #   with:
-      #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      #     aws-region: ${{ env.AWS_REGION }}
-
-      # ==============================================================================
-      # Option B: Authenticate using OIDC Role Federation (Recommended for Production)
-      # ==============================================================================
-      - name: Configure AWS Credentials (OIDC Role)
-        uses: aws-actions/configure-aws-credentials@v6
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Log in to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+          username: ${{ secrets.DOCKERHUB_USER_NAME }}
+          password: ${{ secrets.DOCKERHUB_USER_TOKEN }}
 
       # ==============================================================================
       # Build & Push Go Product Service
       # ==============================================================================
       - name: Build and Push Go Product Service
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: ./${{ env.APPS_SRC_DIR }}/golang-app
           file: ./${{ env.APPS_SRC_DIR }}/golang-app/Dockerfile
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.GOLANG_APP_REPO }}:${{ github.sha }}
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.GOLANG_APP_REPO }}:latest
+            ${{ secrets.DOCKERHUB_USER_NAME }}/${{ env.GOLANG_APP_REPO }}:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USER_NAME }}/${{ env.GOLANG_APP_REPO }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -73,13 +56,13 @@ jobs:
       # Build & Push Python Product Info Service
       # ==============================================================================
       - name: Build and Push Python Product Info Service
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: ./${{ env.APPS_SRC_DIR }}/python-app
           file: ./${{ env.APPS_SRC_DIR }}/python-app/Dockerfile
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.PYTHON_APP_REPO }}:${{ github.sha }}
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.PYTHON_APP_REPO }}:latest
+            ${{ secrets.DOCKERHUB_USER_NAME }}/${{ env.PYTHON_APP_REPO }}:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USER_NAME }}/${{ env.PYTHON_APP_REPO }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
