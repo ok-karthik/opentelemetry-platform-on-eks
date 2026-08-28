@@ -173,6 +173,7 @@ ruler:
     - name: ruler-rules
       configMap:
         name: mimir-ruler-rules
+        optional: true
   extraVolumeMounts:
     - name: ruler-rules
       mountPath: /var/mimir-ruler-rules/anonymous
