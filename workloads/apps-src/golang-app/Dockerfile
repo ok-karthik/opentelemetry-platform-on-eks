@@ -1,14 +1,13 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
-# Copy the go.mod first
-COPY go.mod ./
-# Copy source files so go mod tidy can detect dependencies and build the binary
-COPY main.go telemetry.go ./
+# Copy dependency definitions first for Docker layer caching
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Run go mod tidy to dynamically resolve dependencies and write a complete go.sum
-RUN go mod tidy
+# Copy application source files
+COPY main.go telemetry.go ./
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o main .
 
