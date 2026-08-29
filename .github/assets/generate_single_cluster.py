@@ -1,21 +1,20 @@
 import os
 from diagrams import Cluster, Diagram, Edge
-from diagrams.aws.compute import EKS
-from diagrams.aws.storage import S3
 from diagrams.aws.management import Cloudwatch
 from diagrams.k8s.compute import DaemonSet, Deployment, Pod
 from diagrams.onprem.monitoring import Grafana
 from diagrams.onprem.logging import Loki
 from diagrams.onprem.tracing import Tempo
-from diagrams.programming.language import Go, Python
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 diagram_filename = os.path.join(script_dir, "single_cluster_architecture")
 
+# Increased ranksep to give horizontal flow more breathing room
+# Optional: Change splines to "ortho" for rigid 90-degree angles (classic draw.io look)
 graph_attr = {
     "pad": "0.5",
     "nodesep": "0.8",
-    "ranksep": "1.2",
+    "ranksep": "2.5", 
     "splines": "spline",
     "fontsize": "20",
     "dpi": "300"
@@ -27,7 +26,7 @@ node_attr = {
 
 cluster_attr = {
     "fontsize": "15",
-    "margin": "20"
+    "margin": "25"
 }
 
 with Diagram(
@@ -61,18 +60,27 @@ with Diagram(
                 processor = Deployment("Tier 2: Processor\n(Tail-Sampling + OTTL)")
                 router >> Edge(label="gRPC :4319\n(Trace Affinity)") >> processor
 
+            # Storage Backends Container
+            # Removing the invisible edges allows these to naturally stack vertically
+            # because they share the same rank from the Processor's perspective.
             with Cluster("Storage Backends (S3 & Serverless)", graph_attr=cluster_attr):
-                amp = Cloudwatch("Amazon Managed\nPrometheus (AMP)")
-                loki = Loki("Grafana Loki\n(S3 Logs)")
                 tempo = Tempo("Grafana Tempo\n(S3 Traces)")
+                loki = Loki("Grafana Loki\n(S3 Logs)")
+                amp = Cloudwatch("Amazon Managed\nPrometheus (AMP)")
 
             grafana = Grafana("Grafana UI\n(Unified Single-Pane)")
 
-            grafana >> Edge(color="darkorange", label="SigV4 PromQL") >> amp
-            grafana >> Edge(color="firebrick", label="LogQL") >> loki
-            grafana >> Edge(color="royalblue", label="TraceQL") >> tempo
-
+        # 1. Clean Data Ingestion: Symmetrical paths feeding into the vertical storage stack
         otel_daemon >> Edge(color="darkblue", label="OTLP / CoreDNS") >> router
-        processor >> Edge(color="darkorange", label="SigV4 Remote Write") >> amp
-        processor >> Edge(color="firebrick", label="Native OTLP") >> loki
+        
         processor >> Edge(color="royalblue", label="OTLP") >> tempo
+        processor >> Edge(color="firebrick", label="Native OTLP") >> loki
+        processor >> Edge(color="darkorange", label="SigV4 Remote Write") >> amp
+
+        # 2. Clean UI Queries (The Reverse Edge Trick):
+        # We declare the edges flowing FROM storage TO grafana, which forces Grafana 
+        # to the far right. We then use dir="back" so the arrows visually point 
+        # backwards (FROM grafana TO storage), maintaining architectural accuracy.
+        amp >> Edge(dir="back", color="darkorange", label="SigV4 PromQL") >> grafana
+        loki >> Edge(dir="back", color="firebrick", label="LogQL") >> grafana
+        tempo >> Edge(dir="back", color="royalblue", label="TraceQL") >> grafana
