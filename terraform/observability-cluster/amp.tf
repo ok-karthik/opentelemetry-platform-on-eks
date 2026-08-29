@@ -31,7 +31,10 @@ resource "aws_iam_policy" "otel_gateway_aws_ingest" {
           "aps:GetLabels",
           "aps:GetMetricMetadata"
         ]
-        Resource = "${aws_prometheus_workspace.amp[0].arn}/*"
+        Resource = [
+          aws_prometheus_workspace.amp[0].arn,
+          "${aws_prometheus_workspace.amp[0].arn}/*"
+        ]
       },
       {
         Effect = "Allow"
@@ -103,7 +106,10 @@ resource "aws_iam_policy" "grafana_amp_query" {
           "aps:GetLabels",
           "aps:GetMetricMetadata"
         ]
-        Resource = "${aws_prometheus_workspace.amp[0].arn}/*"
+        Resource = [
+          aws_prometheus_workspace.amp[0].arn,
+          "${aws_prometheus_workspace.amp[0].arn}/*"
+        ]
       }
     ]
   })

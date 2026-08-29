@@ -138,6 +138,9 @@ spec:
           - key: team
             value: product
             action: upsert
+          - key: service.name
+            value: node-agent
+            action: insert
 
     exporters:
       # Forwards telemetry directly to the Tier 1 gateway router (ClusterIP in single-cluster, NLB in multi-cluster).

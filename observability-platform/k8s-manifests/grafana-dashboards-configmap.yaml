@@ -53,7 +53,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum(rate(http_server_duration_milliseconds_bucket{service_name=\"$service\"}[5m])) by (le))",
+              "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{job=~\".*$service.*\"}[5m])) by (le)) * 1000",
               "legendFormat": "P99 Latency (ms)",
               "refId": "A"
             }
@@ -82,16 +82,11 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(http_server_duration_milliseconds_count{service_name=\"$service\"}[5m]))",
+              "expr": "sum(rate(http_server_request_duration_seconds_count{job=~\".*$service.*\"}[5m]))",
               "legendFormat": "Requests / sec",
               "refId": "A"
             }
           ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "reqps"
-            }
-          },
           "fieldConfig": {
             "defaults": {
               "unit": "reqps"
@@ -116,7 +111,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(http_server_duration_milliseconds_count{service_name=\"$service\", http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_duration_milliseconds_count{service_name=\"$service\"}[5m])) * 100",
+              "expr": "sum(rate(http_server_request_duration_seconds_count{job=~\".*$service.*\", http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{job=~\".*$service.*\"}[5m])) * 100",
               "legendFormat": "Error Rate %",
               "refId": "A"
             }
@@ -157,8 +152,8 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(increase(http_server_duration_milliseconds_count{service_name=\"$service\", http_status_code!=\"404\"}[5m])) by (http_status_code, http_route, http_method)",
-              "legendFormat": "{{http_route}} ({{http_status_code}})",
+              "expr": "sum(increase(http_server_request_duration_seconds_count{job=~\".*$service.*\"}[5m])) by (http_response_status_code, http_route, http_request_method)",
+              "legendFormat": "{{http_route}} ({{http_response_status_code}})",
               "refId": "A"
             }
           ],
@@ -192,7 +187,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(container_cpu_usage{k8s_pod_name=~\"$service-.*\"})",
+              "expr": "sum(container_cpu_usage{job=~\".*$service.*\"})",
               "legendFormat": "Container CPU Cores",
               "refId": "A"
             }
@@ -221,7 +216,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(container_memory_working_set_bytes{k8s_pod_name=~\"$service-.*\"})",
+              "expr": "sum(container_memory_working_set_bytes{job=~\".*$service.*\"})",
               "legendFormat": "Container Memory",
               "refId": "A"
             }
@@ -323,7 +318,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{service_name=\"$service\"}[5m])) by (le)) * 1000",
+              "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{job=~\".*$service.*\"}[5m])) by (le)) * 1000",
               "legendFormat": "P99 Latency (ms)",
               "refId": "A"
             }
@@ -352,7 +347,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"$service\"}[5m]))",
+              "expr": "sum(rate(http_server_request_duration_seconds_count{job=~\".*$service.*\"}[5m]))",
               "legendFormat": "Requests / sec",
               "refId": "A"
             }
@@ -381,7 +376,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"$service\", http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"$service\"}[5m])) * 100",
+              "expr": "sum(rate(http_server_request_duration_seconds_count{job=~\".*$service.*\", http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{job=~\".*$service.*\"}[5m])) * 100",
               "legendFormat": "Error Rate %",
               "refId": "A"
             }
@@ -422,7 +417,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(increase(http_server_request_duration_seconds_count{service_name=\"$service\"}[5m])) by (http_response_status_code, http_route)",
+              "expr": "sum(increase(http_server_request_duration_seconds_count{job=~\".*$service.*\"}[5m])) by (http_response_status_code, http_route)",
               "legendFormat": "{{http_route}} ({{http_response_status_code}})",
               "refId": "A"
             }
@@ -457,7 +452,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(container_cpu_usage{k8s_pod_name=~\"$service-.*\"})",
+              "expr": "sum(container_cpu_usage{job=~\".*$service.*\"})",
               "legendFormat": "Container CPU Cores",
               "refId": "A"
             }
@@ -486,7 +481,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(container_memory_working_set_bytes{k8s_pod_name=~\"$service-.*\"})",
+              "expr": "sum(container_memory_working_set_bytes{job=~\".*$service.*\"})",
               "legendFormat": "Container Memory",
               "refId": "A"
             }
@@ -553,209 +548,6 @@ data:
       },
       "title": "Python Golden Signals Service Dashboard (Unified)",
       "version": 1
-    }
-  kubernetes-dashboard.json: |
-    {
-      "annotations": {
-        "list": []
-      },
-      "editable": true,
-      "fiscalYearStartMonth": 0,
-      "graphTooltip": 1,
-      "id": null,
-      "links": [],
-      "liveNow": false,
-      "panels": [
-        {
-          "collapsed": false,
-          "gridPos": {
-            "h": 1,
-            "w": 24,
-            "x": 0,
-            "y": 0
-          },
-          "id": 10,
-          "title": "Cluster Overview",
-          "type": "row"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "fixed"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 8,
-            "x": 0,
-            "y": 1
-          },
-          "id": 11,
-          "options": {
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "center",
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "text": {},
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "count(sum by (k8s_node_name) (k8s_node_cpu_usage))",
-              "refId": "A"
-            }
-          ],
-          "title": "Active Nodes",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "fixed"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "blue",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 8,
-            "x": 8,
-            "y": 1
-          },
-          "id": 12,
-          "options": {
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "center",
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "text": {},
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "count(sum by (k8s_pod_name) (k8s_pod_cpu_usage{k8s_namespace_name=~\"$k8s_namespace_name\"}))",
-              "refId": "A"
-            }
-          ],
-          "title": "Active Pods",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "fixed"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "purple",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 8,
-            "x": 16,
-            "y": 1
-          },
-          "id": 13,
-          "options": {
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "center",
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "text": {},
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "count(sum by (k8s_namespace_name) (k8s_pod_cpu_usage))",
-              "refId": "A"
-            }
-          ],
-          "title": "Active Namespaces",
-          "type": "stat"
-        },
-        {
-          "collapsed": false,
-          "gridPos": {
-            "h": 1,
             "w": 24,
             "x": 0,
             "y": 5
@@ -2185,6 +1977,468 @@ data:
       "gnetId": 15757
     }
 
+  kubernetes-dashboard.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": 3,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "id": 10,
+          "title": "Cluster Overview",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            }
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 0,
+            "y": 1
+          },
+          "id": 11,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count(sum by (k8s_node_name) (k8s_node_cpu_usage))",
+              "refId": "A"
+            }
+          ],
+          "title": "Active Nodes",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": null
+                  }
+                ]
+              }
+            }
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 6,
+            "y": 1
+          },
+          "id": 12,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count(sum by (k8s_pod_name) (k8s_pod_cpu_usage))",
+              "refId": "A"
+            }
+          ],
+          "title": "Active Pods",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed"
+              },
+              "unit": "cores",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "purple",
+                    "value": null
+                  }
+                ]
+              }
+            }
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 12,
+            "y": 1
+          },
+          "id": 13,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(k8s_node_cpu_usage)",
+              "refId": "A"
+            }
+          ],
+          "title": "Cluster CPU Cores Used",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed"
+              },
+              "unit": "decbytes",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "orange",
+                    "value": null
+                  }
+                ]
+              }
+            }
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 18,
+            "y": 1
+          },
+          "id": 14,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(k8s_node_memory_working_set_bytes)",
+              "refId": "A"
+            }
+          ],
+          "title": "Cluster Memory Working Set",
+          "type": "stat"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 5
+          },
+          "id": 20,
+          "title": "Node Resource Utilization",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cores"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 6
+          },
+          "id": 21,
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (k8s_node_name) (k8s_node_cpu_usage)",
+              "legendFormat": "{{k8s_node_name}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Node CPU Usage",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "decbytes"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 6
+          },
+          "id": 22,
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (k8s_node_name) (k8s_node_memory_working_set_bytes)",
+              "legendFormat": "{{k8s_node_name}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Node Memory Working Set",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 14
+          },
+          "id": 30,
+          "title": "Workload & Pod Utilization",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cores"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 15
+          },
+          "id": 31,
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "topk(10, sum by (k8s_pod_name) (k8s_pod_cpu_usage))",
+              "legendFormat": "{{k8s_pod_name}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Top Pods by CPU Usage",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "decbytes"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 15
+          },
+          "id": 32,
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "topk(10, sum by (k8s_pod_name) (k8s_pod_memory_working_set_bytes))",
+              "legendFormat": "{{k8s_pod_name}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Top Pods by Memory Usage",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 23
+          },
+          "id": 33,
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (k8s_pod_name) (rate(k8s_pod_network_io_bytes_total[5m]))",
+              "legendFormat": "{{k8s_pod_name}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Pod Network IO (Bytes/sec)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cores"
+            }
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 23
+          },
+          "id": 34,
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (job) (container_cpu_usage)",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Container CPU Usage by Service",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": [
+        "Kubernetes",
+        "Prometheus",
+        "OpenTelemetry"
+      ],
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "title": "Kubernetes / Views / Global",
+      "uid": "k8s_views_global",
+      "version": 44
+    }
+
   otel-collector-meta-monitoring-dashboard.json: |
     {
       "annotations": {
@@ -2215,11 +2469,17 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (job, instance) (rate({__name__=~\"otelcol_processor_dropped_(spans|metric_points|log_records)(_total)?\"}[5m]))",
+              "expr": "(sum by (job, instance) (rate(otelcol_processor_dropped_spans_total[5m])) + sum by (job, instance) (rate(otelcol_processor_dropped_metric_points_total[5m])) + sum by (job, instance) (rate(otelcol_processor_dropped_log_records_total[5m]))) or (sum by (job, instance) (up{job=~\"otel-collector.*\"}) * 0)",
               "legendFormat": "{{job}} / {{instance}}",
               "refId": "A"
             }
-          ]
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0
+            }
+          }
         },
         {
           "collapsed": false,
@@ -2239,11 +2499,17 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (job, instance) (rate({__name__=~\"otelcol_receiver_refused_(spans|metric_points|log_records)(_total)?\"}[5m]))",
+              "expr": "(sum by (job, instance) (rate(otelcol_receiver_refused_spans_total[5m])) + sum by (job, instance) (rate(otelcol_receiver_refused_metric_points_total[5m])) + sum by (job, instance) (rate(otelcol_receiver_refused_log_records_total[5m]))) or (sum by (job, instance) (up{job=~\"otel-collector.*\"}) * 0)",
               "legendFormat": "{{job}} / {{instance}}",
               "refId": "A"
             }
-          ]
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0
+            }
+          }
         },
         {
           "collapsed": false,
@@ -2267,7 +2533,14 @@ data:
               "legendFormat": "{{job}} / {{instance}} - {{exporter}}",
               "refId": "A"
             }
-          ]
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100
+            }
+          }
         },
         {
           "collapsed": false,
@@ -2291,7 +2564,75 @@ data:
               "legendFormat": "{{job}} / {{instance}}",
               "refId": "A"
             }
-          ]
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "max": 1.5,
+              "custom": {
+                "fillOpacity": 20
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "id": 5,
+          "title": "Ingested Telemetry Volume (Items / sec)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (rate(otelcol_receiver_accepted_metric_points_total[5m]) + rate(otelcol_receiver_accepted_log_records_total[5m]) + rate(otelcol_receiver_accepted_spans_total[5m]))",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "id": 6,
+          "title": "Exporter Sent Volume (Items / sec)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job, exporter) (rate(otelcol_exporter_sent_metric_points_total[5m]) + rate(otelcol_exporter_sent_log_records_total[5m]) + rate(otelcol_exporter_sent_spans_total[5m]))",
+              "legendFormat": "{{job}} - {{exporter}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            }
+          }
         }
       ],
       "refresh": "10s",
@@ -2309,5 +2650,5 @@ data:
       },
       "title": "Meta-Monitoring: OTel Pipeline",
       "uid": "otel-meta-monitoring",
-      "version": 1
+      "version": 3
     }

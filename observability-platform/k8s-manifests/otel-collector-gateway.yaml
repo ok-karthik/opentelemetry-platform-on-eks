@@ -38,6 +38,26 @@ spec:
         check_interval: 1s
         limit_percentage: 75
         spike_limit_percentage: 15
+
+      # Ensure service.name exists for load balancer routing_key: service
+      transform/default_service_name:
+        error_mode: ignore
+        metric_statements:
+          - context: resource
+            statements:
+              - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil and attributes["k8s.container.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.deployment.name"]) where attributes["service.name"] == nil and attributes["k8s.deployment.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.pod.name"]) where attributes["service.name"] == nil and attributes["k8s.pod.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.namespace.name"]) where attributes["service.name"] == nil and attributes["k8s.namespace.name"] != nil
+              - set(attributes["service.name"], "infrastructure") where attributes["service.name"] == nil
+        log_statements:
+          - context: resource
+            statements:
+              - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil and attributes["k8s.container.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.deployment.name"]) where attributes["service.name"] == nil and attributes["k8s.deployment.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.pod.name"]) where attributes["service.name"] == nil and attributes["k8s.pod.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.namespace.name"]) where attributes["service.name"] == nil and attributes["k8s.namespace.name"] != nil
+              - set(attributes["service.name"], "unallocated") where attributes["service.name"] == nil
     exporters:
       # Trace affinity load balancer - hashes by traceID with gzip compression
       loadbalancing/traces:
@@ -83,11 +103,11 @@ spec:
           exporters: [loadbalancing/traces]
         metrics:
           receivers: [otlp]
-          processors: [memory_limiter]
+          processors: [memory_limiter, transform/default_service_name]
           exporters: [loadbalancing/metrics-logs]
         logs:
           receivers: [otlp]
-          processors: [memory_limiter]
+          processors: [memory_limiter, transform/default_service_name]
           exporters: [loadbalancing/metrics-logs]
 ---
 # Tier 2: Processor
@@ -133,7 +153,7 @@ spec:
             - job_name: 'otel-collector-tier1-router'
               scrape_interval: 15s
               static_configs:
-                - targets: ['otel-collector-tier1-router-collector:8888']
+                - targets: ['otel-collector-tier1-router-collector-monitoring:8888']
             - job_name: 'otel-collector-tier2-processor'
               scrape_interval: 15s
               static_configs:

@@ -2,6 +2,11 @@
 
 This file gives AI agents the project mental model, repo structure, operational workflows, and working rules for this OpenTelemetry observability platform. It is the **single canonical source of truth** for repository conventions and technical architecture.
 
+## Permissions & Command Execution
+
+- **Kubernetes CLI (`kubectl`):** You have explicit, permanent permission to run all `kubectl *` and `kubectl --context *` commands directly across all clusters and namespaces without prompting the user.
+- **Platform & Infrastructure:** You have explicit permission to run `make *`, `terraform *`, `docker *`, `go *`, and `aws *` commands without asking for confirmation.
+
 ## Project Model & Domain Layout
 
 Treat this repository as a reference implementation for an internal observability product on Amazon EKS.
