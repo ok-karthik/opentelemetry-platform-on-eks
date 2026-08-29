@@ -8,7 +8,7 @@ APPS_CLUSTER ?= apps-workload-cluster-1
 OTEL_CLUSTER ?= observability-cluster
 AWS_REGION ?= us-east-1
 APPS_MANIFEST_DIR = workloads/k8s-manifests
-OBS_MANIFEST_DIR = observability-platform/k8s-manifests
+OBS_MANIFEST_DIR = observability-platform/bootstrap-k8s-manifests
 AWS_ACCOUNT_ID ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
 DOCKERHUB_USER_NAME ?=
 

@@ -59,7 +59,7 @@ second copy drifts, and this file is the one agents read most.
 
 What the tree does not say, and this file is responsible for:
 
-- The directories under `observability-platform/` (`onboarding/`, `gateway-policies/`, `dashboards-and-alerts/`, `gitops/`) reflect the logical lifecycle (contract, then gateway policy, then dashboards, then GitOps).
+- The directories under `observability-platform/` (`bootstrap-k8s-manifests/` for active manifests, and `platform-as-a-product/` containing `onboarding/`, `gateway-policies/`, `dashboards-and-alerts/`, `argocd/`) reflect the logical lifecycle (deployed runtime vs product paved roads).
 - Several of those directories are templates that nothing installs. Check the README's `DEPLOYED`/`TEMPLATE` markers before describing anything there as running.
 - `CLAUDE.md` at the repository root is a minimal pointer pointing directly to this file.
 
@@ -139,7 +139,7 @@ For Go, `OTEL_RESOURCE_ATTRIBUTES` only takes effect if the resource is built wi
 
 ### Observability Gateway
 
-`observability-platform/k8s-manifests/otel-collector-gateway.yaml` is the central gateway.
+`observability-platform/bootstrap-k8s-manifests/otel-collector-gateway.yaml` is the central gateway.
 
 This is where platform policy should live:
 
@@ -154,7 +154,7 @@ Important: if a processor is defined, verify it is also wired into the relevant 
 
 ### Routing and Multitenancy
 
-`observability-platform/gateway-policies/otel-gateway-multitenant.yaml` demonstrates tenant-aware routing.
+`observability-platform/platform-as-a-product/gateway-policies/otel-gateway-multitenant.yaml` demonstrates tenant-aware routing.
 
 The pattern is:
 
@@ -172,7 +172,7 @@ When extending this, keep app-team inputs simple. App repos should declare servi
 
 ### Telemetry Budgeting
 
-`observability-platform/gateway-policies/otel-gateway-tail-sampling.yaml` shows gateway-level cost control.
+`observability-platform/platform-as-a-product/gateway-policies/otel-gateway-tail-sampling.yaml` shows gateway-level cost control.
 
 Use tail sampling to:
 
@@ -185,9 +185,9 @@ At enterprise scale, consider an ingestion gateway plus Kafka/MSK plus processin
 
 ### Dashboards and Alerts
 
-`observability-platform/dashboards-and-alerts/golden-signals/` contains baseline Grafana dashboards for service golden signals.
+`observability-platform/platform-as-a-product/dashboards-and-alerts/golden-signals/` contains baseline Grafana dashboards for service golden signals.
 
-`observability-platform/dashboards-and-alerts/helm-chart/` demonstrates a GitOps model where:
+`observability-platform/platform-as-a-product/dashboards-and-alerts/helm-chart/` demonstrates a GitOps model where:
 
 - Platform owns reusable Helm templates.
 - App teams own a small values file containing service name, team, Slack channel, SLOs, and thresholds.
@@ -224,7 +224,7 @@ Terraform ECR repositories (`terraform/ecr.tf`) have been removed. Application m
 
 ### The 4 Levels of Telemetry Instrumentation
 
-Enterprise observability combines complementary instrumentation tiers (see `observability-platform/onboarding/instrumentation-tiers-and-ebpf.md`):
+Enterprise observability combines complementary instrumentation tiers (see `observability-platform/platform-as-a-product/onboarding/instrumentation-tiers-and-ebpf.md`):
 
 1. **Level 1: Kernel-Space eBPF (OBI DaemonSet):** Zero-code instrumentation inside the Linux kernel. Catches what runtimes miss: instant `OOMKilled` (Exit 137), cross-AZ TCP retransmits, CPU CFS throttling (`runqlat`), and uninstrumented legacy binaries (Nginx, Envoy, CoreDNS).
 2. **Level 2: Runtime Auto-Instrumentation (OTel Operator):** Injected via pod annotations (`instrumentation.opentelemetry.io/inject-*`). Injects runtime hooks for Python, Java, Node.js, and .NET. Captures full application exceptions, stack traces, and database queries (`SELECT * FROM ...`).

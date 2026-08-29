@@ -87,13 +87,10 @@ flowchart LR
 | Path | Contents | Status |
 |---|---|---|
 | [`workloads/`](workloads/) | Demo microservices (Go/Python), manifests, and OTel DaemonSet agent | **Deployed** |
-| [`observability-platform/`](observability-platform/) | Central OTel Gateway, NLB, Grafana dashboards, GoAlert, and alert sink | **Deployed** |
+| [`observability-platform/bootstrap-k8s-manifests/`](observability-platform/bootstrap-k8s-manifests/) | Central OTel Gateway, NLB, Grafana dashboards, GoAlert, and alert sink | **Deployed** |
+| [`observability-platform/platform-as-a-product/`](observability-platform/platform-as-a-product/) | Service contracts, 4 levels of instrumentation, sampling policies & GitOps | *Product Paved Roads* |
 | [`terraform/`](terraform/) | Single-cluster and multi-cluster EKS, VPC, AMP, S3, and IAM Pod Identity | **Deployed** |
 | [`terraform/.../helm-values/`](terraform/observability-cluster/helm-values/) | Loki, Tempo, and Grafana Helm values with inline architectural rationale | **Deployed** |
-| [`observability-platform/onboarding/`](observability-platform/onboarding/) | Service onboarding contract, multi-runtime CRs, and Go SDK template | *Contract / Template* |
-| [`observability-platform/gateway-policies/`](observability-platform/gateway-policies/) | Multi-tenant routing and tail-sampling budgeting policy templates | *Template* |
-| [`observability-platform/dashboards-and-alerts/`](observability-platform/dashboards-and-alerts/) | Golden signals dashboards, PrometheusRule generator chart, and meta-monitoring | *Deployed & Template* |
-| [`observability-platform/argocd/`](observability-platform/argocd/) | Argo CD App-of-Apps reference template | *Template* |
 | [`docs/`](docs/) | Decisions, multi-tenancy, deployed components inventory, and roadmap | *Documentation* |
 | [`.agents/AGENTS.md`](.agents/AGENTS.md) | Agent operational workflows, mental model, and failure traps | *Documentation* |
 
@@ -116,32 +113,33 @@ workloads/                          # App-team-owned microservices
     python-app/                     # DEPLOYED  Deployment, Svc, CR
 
 observability-platform/             # Platform-team-owned product
-  k8s-manifests/                    # DEPLOYED  Core manifests
+  bootstrap-k8s-manifests/          # DEPLOYED  Core operational manifests
     otel-collector-gateway.yaml     #   Gateway CR: filters, sampling
     svc-nlb-otel-gateway.yaml       #   Internal NLB ingest router
     grafana-ingress.yaml            #   Internet-facing Grafana ALB
-    grafana-dashboards-configmap.yaml
+    grafana-dashboards-configmap.yaml # Baseline Grafana dashboards
     mimir-ruler-rules-configmap.yaml #  SLO burn-rate rule groups
     alert-sink.yaml                 #   Ticket-severity echo receiver
     goalert.yaml                    #   On-call pager + Postgres
     optional-extensions/            #   TEMPLATE  Optional enterprise tier
       kafka-stub.yaml               #     In-cluster Kafka buffer stub
       opensearch-index-bootstrap-job.yaml # OpenSearch ISM policy
-  onboarding/                       # TEMPLATE  Onboarding contracts
-    service-onboarding-contract.md  #   Identity & SLO contract
-    instrumentation-tiers-and-ebpf.md # 4 levels of instrumentation
-    instrumentation-manifests/      #   Multi-runtime CRs & Go SDK
-  gateway-policies/                 # TEMPLATE  Policy templates
-    otel-gateway-multitenant.yaml   #   Multi-tenant routing connector
-    otel-gateway-tail-sampling.yaml #   Tail-sampling rate budgets
-  dashboards-and-alerts/
-    golden-signals/                 # DEPLOYED  Dashboard JSONs
-    helm-chart/                     # TEMPLATE  SLO chart generator
-    META_MONITORING.md              #   Meta-monitoring guide
-  argocd/                           # TEMPLATE  Argo CD App-of-Apps
-    root-application.yaml           #   Parent App-of-Apps application
-    appproject-platform.yaml        #   Platform AppProject
-    apps/                           #   Child applications
+  platform-as-a-product/            # TEMPLATE  Product paved roads & contracts
+    onboarding/                     #   Identity & SLO contract, 4 tiers
+      service-onboarding-contract.md
+      instrumentation-tiers-and-ebpf.md
+      instrumentation-manifests/    #   Multi-runtime CRs & Go SDK
+    gateway-policies/               #   Policy templates
+      otel-gateway-multitenant.yaml #   Multi-tenant routing connector
+      otel-gateway-tail-sampling.yaml # Tail sampling cost budgeting
+    dashboards-and-alerts/          #   SRE math & rule generator
+      golden-signals/               #   Raw JSON definitions
+      helm-chart/                   #   PrometheusRule Helm chart
+      META_MONITORING.md            #   Meta-monitoring architecture
+    argocd/                         #   GitOps App-of-Apps template
+      root-application.yaml         #   Root Application CR
+      appproject-platform.yaml      #   Platform AppProject
+      apps/                         #   Child application manifests
 
 terraform/                          # Cloud infrastructure
   main.tf                           # Multi-cluster entrypoint

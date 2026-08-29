@@ -8,7 +8,7 @@ spec:
   sources:
     - repoURL: https://github.com/ok-karthik/opentelemetry-platform-on-eks.git
       targetRevision: main
-      path: observability-platform/dashboards-and-alerts/helm-chart
+      path: observability-platform/platform-as-a-product/dashboards-and-alerts/helm-chart
       helm:
         valueFiles:
           - $values/observability/product-info-values.yaml

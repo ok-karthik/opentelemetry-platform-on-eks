@@ -8,7 +8,7 @@ This directory contains the platform-team-owned surface for the multi-cluster Op
 
 ```text
 observability-platform/
-├── k8s-manifests/                     # Active Kubernetes manifests (applied by make k8s-deploy-otel)
+├── bootstrap-k8s-manifests/           # Active Kubernetes manifests (applied by make k8s-deploy-gateway / deploy-all)
 │   ├── otel-collector-gateway.yaml    # Two-Tier Gateway (Stateless Router + Stateful Processor with Tail Sampling)
 │   ├── svc-nlb-otel-gateway.yaml      # Internal Ingestion NLB (Instance target type, cross-VPC peered)
 │   ├── grafana-ingress.yaml           # Internet-facing ALB Ingress for Grafana
@@ -20,10 +20,11 @@ observability-platform/
 │       ├── kafka-stub.yaml            # In-cluster Kafka buffer stub
 │       ├── opensearch-index-bootstrap-job.yaml # OpenSearch index template + 7-day ISM policy
 │       └── README.md                  # Instructions for enabling the Kafka -> Logstash -> OpenSearch path
-├── onboarding/                        # Paved Road: Service contract, 4 levels of instrumentation & SDK templates
-├── gateway-policies/                  # Platform Policies: Multitenant routing & sampling budgets
-├── dashboards-and-alerts/             # Visuals & SRE: Raw dashboard JSONs, Helm charts, and META_MONITORING.md
-└── argocd/                            # GitOps: Argo CD App-of-Apps reference template
+└── platform-as-a-product/             # Platform Product: Contracts, Guides, Policies & GitOps Templates
+    ├── onboarding/                    # Paved Road: Service contract, 4 levels of instrumentation & SDK templates
+    ├── gateway-policies/              # Platform Policies: Multitenant routing & sampling budgets
+    ├── dashboards-and-alerts/         # Visuals & SRE: Raw dashboard JSONs, Helm charts, and META_MONITORING.md
+    └── argocd/                        # GitOps: Argo CD App-of-Apps reference template
 ```
 
 ---
