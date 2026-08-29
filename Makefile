@@ -175,8 +175,12 @@ k8s-deploy-otel:
 	fi
 	@echo "Applying Gateway in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/otel-collector-gateway.yaml
-	@echo "Exposing Gateway via AWS NLB in $(OTEL_CLUSTER)..."
-	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/svc-nlb-otel-gateway.yaml
+	@if [ "$(SINGLE_CLUSTER)" = "false" ]; then \
+		echo "Multi-cluster mode: Exposing Gateway via AWS NLB in $(OTEL_CLUSTER)..."; \
+		kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/svc-nlb-otel-gateway.yaml; \
+	else \
+		echo "Single-cluster mode: Gateway routed directly via in-cluster ClusterIP service (NLB skipped)."; \
+	fi
 
 docker-build-push: ## Build and push Go and Python app images to Docker Hub (make docker-build-push DOCKERHUB_USER_NAME=youruser)
 	@echo "Logging into Docker Hub..."

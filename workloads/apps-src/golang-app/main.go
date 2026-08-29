@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -13,7 +14,7 @@ import (
 )
 
 func main() {
-	// Initialize OTel Telemetry (Traces & Metrics)
+	// Initialize OTel Telemetry (Traces, Metrics & Logs)
 	ctx := context.Background()
 	shutdown, err := InitTelemetry(ctx)
 	if err != nil {
@@ -24,7 +25,7 @@ func main() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := shutdown(shutdownCtx); err != nil {
-			log.Printf("Error shutting down telemetry: %v", err)
+			slog.Error("Error shutting down telemetry", "error", err)
 		}
 	}()
 
@@ -36,7 +37,7 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("Go application listening on port %s...", port)
+	slog.Info("Go application listening on port...", "port", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 	}
@@ -47,7 +48,7 @@ func handleProduct(w http.ResponseWriter, r *http.Request) {
 	traceID := spanCtx.TraceID().String()
 	spanID := spanCtx.SpanID().String()
 
-	log.Printf("trace_id=%s span_id=%s [Go App] Fetching product info...", traceID, spanID)
+	slog.InfoContext(r.Context(), "[Go App] Fetching product info...", "trace_id", traceID, "span_id", spanID)
 	time.Sleep(50 * time.Millisecond) // Simulate some work
 
 	// Call the Python product-info service
@@ -56,17 +57,29 @@ func handleProduct(w http.ResponseWriter, r *http.Request) {
 		pythonAppURL = "http://python-app:8001"
 	}
 
-	// We use otelhttp.Get to send a GET request with context propagation.
-	log.Printf("trace_id=%s span_id=%s [Go App] Calling product-info service: %s/product-info", traceID, spanID, pythonAppURL)
-	resp, err := otelhttp.Get(r.Context(), pythonAppURL+"/product-info")
+	// We use http.Client with otelhttp.NewTransport to send a GET request with context propagation.
+	slog.InfoContext(r.Context(), "[Go App] Calling product-info service", "trace_id", traceID, "span_id", spanID, "url", pythonAppURL+"/product-info")
+	httpClient := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   5 * time.Second,
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, pythonAppURL+"/product-info", nil)
 	if err != nil {
-		log.Printf("trace_id=%s span_id=%s [Go App] product-info call failed: %v", traceID, spanID, err)
+		slog.ErrorContext(r.Context(), "[Go App] failed to create product-info request", "trace_id", traceID, "span_id", spanID, "error", err)
+		http.Error(w, fmt.Sprintf("failed to create request: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "[Go App] product-info call failed", "trace_id", traceID, "span_id", spanID, "error", err)
 		http.Error(w, fmt.Sprintf("product-info call failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		slog.WarnContext(r.Context(), "[Go App] product-info service non-200 response", "trace_id", traceID, "span_id", spanID, "status", resp.StatusCode)
 		http.Error(w, "product-info service failed", http.StatusInternalServerError)
 		return
 	}

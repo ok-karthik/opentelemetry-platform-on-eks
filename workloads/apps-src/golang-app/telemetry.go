@@ -4,20 +4,25 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"strings"
 
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-// InitTelemetry initializes both OpenTelemetry tracing and metrics.
+// InitTelemetry initializes OpenTelemetry tracing, metrics, and logs.
 // It returns a shutdown function to be deferred in main.
 func InitTelemetry(ctx context.Context) (func(context.Context) error, error) {
 	// 1. Resolve collector endpoint
@@ -86,9 +91,33 @@ func InitTelemetry(ctx context.Context) (func(context.Context) error, error) {
 	)
 	otel.SetMeterProvider(mp)
 
+	// ==================== LOGGING SETUP ====================
+	logExporter, err := otlploggrpc.New(ctx,
+		otlploggrpc.WithInsecure(),
+		otlploggrpc.WithEndpoint(collectorAddr),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log exporter: %w", err)
+	}
+
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
+		sdklog.WithResource(res),
+	)
+	global.SetLoggerProvider(lp)
+
+	// Configure slog default logger to bridge directly to OpenTelemetry Log SDK
+	slogLogger := otelslog.NewLogger("golang-product-service")
+	slog.SetDefault(slogLogger)
+
 	// ==================== SHUTDOWN HANDLER ====================
 	shutdown := func(shutdownCtx context.Context) error {
 		var shutdownErrors []string
+
+		log.Println("[Telemetry] Flushing and shutting down Logger Provider...")
+		if err := lp.Shutdown(shutdownCtx); err != nil {
+			shutdownErrors = append(shutdownErrors, fmt.Sprintf("logger provider shutdown error: %v", err))
+		}
 
 		log.Println("[Telemetry] Flushing and shutting down Meter Provider...")
 		if err := mp.Shutdown(shutdownCtx); err != nil {

@@ -1,3 +1,4 @@
+from diagrams.k8s.compute import StatefulSet
 import os
 from diagrams import Cluster, Diagram, Edge
 from diagrams.aws.management import Cloudwatch
@@ -57,7 +58,7 @@ with Diagram(
             with Cluster("", graph_attr=stack_middle):
                 with Cluster("", graph_attr=stack_top):
                     router = Deployment("Tier 1: Router\n(Deployment + HPA)")
-                    processor = Deployment("Tier 2: Processor\n(Deployment + HPA)")
+                    processor = StatefulSet("Tier 2: Processor\n(Deployment + HPA)")
 
         # Storage Backends
         with Cluster("Storage Backends (S3 & Serverless)", graph_attr={"fontsize": "15", "margin": "25"}):
