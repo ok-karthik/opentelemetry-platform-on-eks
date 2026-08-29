@@ -8,55 +8,56 @@ By coupling tail-based sampling, S3 storage tiers, and serverless metric ingesti
 
 ## Architecture
 
-Deployable in **Single-Cluster Mode (default, ~$150/mo)** for fast iteration or **Multi-Cluster Peered Mode (~$300/mo)** across peered VPCs (`10.0.0.0/16` for workloads, `10.1.0.0/16` for observability) over an AWS Network Load Balancer (NLB).
+Deployable out-of-the-box in **Single-Cluster Mode (default, ~$150/mo)** using namespace and node-pool isolation, or in **Multi-Cluster Peered Mode (~$300/mo)** for regional hub aggregation across peered VPCs.
 
 ```mermaid
 flowchart TB
-    subgraph WorkloadCluster["Workload Cluster / Namespace (VPC 10.0.0.0/16)"]
-        GoApp["golang-product-service\n(Programmatic Go SDK)"]
-        PyApp["python-product-info-service\n(Auto-Instrumented Python)"]
-        GoApp -.->|"Trace Context (W3C)"| PyApp
-        
-        DaemonSetAgent["OTel Collector DaemonSet (:4317)\nk8sattributes + filelog + kubeletstats"]
-        OBI["OBI eBPF DaemonSet\n(Linux Kernel TCP & HTTP RED)"]
-        
-        GoApp -->|"OTLP (status.hostIP)"| DaemonSetAgent
-        PyApp -->|"OTLP (status.hostIP)"| DaemonSetAgent
-        OBI -->|"Kernel Probes (Loopback)"| DaemonSetAgent
-    end
-
-    subgraph ObsCluster["Observability Cluster (VPC 10.1.0.0/16)"]
-        NLB["AWS Internal NLB (Ingress Router)"]
-        
-        subgraph GatewayFleet["Central OTel Gateway Fleet"]
-            Router["Tier 1: Stateless Router\n(Consistent Hash by traceID)"]
-            Processor["Tier 2: Stateful Processor\n(Tail-Sampling + OTTL Normalization)"]
-            Router -->|"gRPC :4319 (Trace Affinity)"| Processor
+    subgraph EKSCluster["Amazon EKS Cluster (Single-Cluster Topology)"]
+        subgraph WorkloadsNS["Namespace: default (Application Workloads)"]
+            GoApp["golang-product-service\n(Programmatic Go SDK)"]
+            PyApp["python-product-info-service\n(Auto-Instrumented Python)"]
+            GoApp -.->|"Trace Context (W3C)"| PyApp
+            
+            DaemonSetAgent["OTel Collector DaemonSet (:4317)\nk8sattributes + filelog + kubeletstats"]
+            OBI["OBI eBPF DaemonSet\n(Kernel TCP & HTTP RED)"]
+            
+            GoApp -->|"OTLP (status.hostIP)"| DaemonSetAgent
+            PyApp -->|"OTLP (status.hostIP)"| DaemonSetAgent
+            OBI -->|"Kernel Probes (Loopback)"| DaemonSetAgent
         end
 
-        subgraph Backends["Storage Backends (S3 & Serverless)"]
-            AMP[("Amazon Managed Prometheus\n(Serverless Metrics via SigV4)")]
-            Loki[("Grafana Loki (SingleBinary)\nS3 via Free VPC Endpoint")]
-            Tempo[("Grafana Tempo (Monolithic)\nS3 via Free VPC Endpoint")]
+        subgraph MonitoringNS["Namespace: monitoring (Observability Platform)"]
+            subgraph GatewayFleet["Central OTel Gateway Fleet"]
+                Router["Tier 1: Stateless Router\n(Consistent Hash by traceID)"]
+                Processor["Tier 2: Stateful Processor\n(Tail-Sampling + OTTL Normalization)"]
+                Router -->|"gRPC :4319 (Trace Affinity)"| Processor
+            end
+
+            subgraph Backends["Storage Backends (S3 & Serverless)"]
+                AMP[("Amazon Managed Prometheus\n(Serverless Metrics via SigV4)")]
+                Loki[("Grafana Loki (SingleBinary)\nS3 via Free VPC Endpoint")]
+                Tempo[("Grafana Tempo (Monolithic)\nS3 via Free VPC Endpoint")]
+            end
+
+            Grafana["Grafana UI\n(Unified Dashboards & Traces)"]
+            Grafana -->|"SigV4 PromQL"| AMP
+            Grafana -->|"LogQL"| Loki
+            Grafana -->|"TraceQL"| Tempo
         end
 
-        Grafana["Grafana UI\n(Unified Dashboards & Traces)"]
-        Grafana -->|"SigV4 PromQL"| AMP
-        Grafana -->|"LogQL"| Loki
-        Grafana -->|"TraceQL"| Tempo
+        DaemonSetAgent -->|"OTLP / Gzip (In-Cluster CoreDNS)"| Router
+        Processor -->|"SigV4 Remote Write"| AMP
+        Processor -->|"Native OTLP"| Loki
+        Processor -->|"OTLP"| Tempo
     end
-
-    DaemonSetAgent -->|"OTLP / Gzip (VPC Peering)"| NLB
-    NLB --> Router
-    Processor -->|"SigV4 Remote Write"| AMP
-    Processor -->|"Native OTLP"| Loki
-    Processor -->|"OTLP"| Tempo
 ```
+
+> 💡 **Multi-Cluster Regional Hub Extension:** For organizations running dozens of Kubernetes clusters or separate AWS accounts, the Gateway exposes an internal AWS Network Load Balancer (NLB) over VPC Peering or AWS Transit Gateway to aggregate regional telemetry into this central cluster without modifying workload code.
 
 ### The Telemetry Flow (In 5 Steps)
 
 1. **Multi-Tier Instrumentation:** Go microservice (programmatic OTel SDK) calls a Python service (OTel Operator auto-instrumentation) and propagates W3C trace context, while OBI eBPF captures kernel-level TCP and HTTP metrics non-invasively. Both run pre-built multi-arch images from Docker Hub (`ok-karthik/*`).
-2. **Node-Local Enrichment:** Pods stream OTLP to their node-local collector via Downward API `status.hostIP:4317` (preserving `k8sattributes` cache locality). The DaemonSet enriches metadata, tails pod logs, and batches telemetry before shipping to the gateway.
+2. **Node-Local Enrichment:** Pods stream OTLP to their node-local collector via Downward API `status.hostIP:4317` (preserving `k8sattributes` cache locality). The DaemonSet enriches metadata, tails pod logs, and batches telemetry before shipping directly to the gateway via in-cluster CoreDNS (or internal NLB in multi-cluster mode).
 3. **Consistent-Hash Gateway Routing:** The Tier 1 Gateway routes traces by `trace_id` consistent hashing to guarantee that all spans of a distributed trace converge on the exact same Tier 2 collector replica.
 4. **Platform Policy & Sampling:** The Tier 2 Gateway strips noisy health checks, normalizes HTTP semantic conventions, retains 100% of errors/slow calls while sampling down healthy `200 OK` traces, and applies gzip compression.
 5. **Storage & Correlation:**

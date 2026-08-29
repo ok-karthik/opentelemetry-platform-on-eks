@@ -45,25 +45,33 @@ This document details the architectural rationale, trade-offs, and design choice
 
 ---
 
-### 3. Dedicated Observability Cluster in Peered VPC
+### 3. Cluster Topology: Single-Cluster Default vs. Multi-Cluster Regional Hub
 
-**Chosen:** A dedicated observability cluster in its own VPC, peered to the workload VPC. Telemetry crosses the peering link over an *internal* NLB; nothing about the path touches the public internet.
+**Chosen:** Support two distinct operational modes, with **Single-Cluster Mode (`SINGLE_CLUSTER=true`, ~$150/mo)** as the recommended default for fast iteration and standard environments, and **Multi-Cluster Peered Mode (`SINGLE_CLUSTER=false`, ~$300/mo)** for regional fleet aggregation.
 
-**Rejected — One cluster with a `monitoring` namespace:** Cheaper and simpler, but the failure mode is that the system you use to debug an incident is running on the cluster experiencing the incident. A node-pressure event or a bad workload rollout takes the telemetry with it, and Mimir's compaction spikes compete with application pods for the same nodes.
+#### Why Single-Cluster is the Default (The 80% Case):
+- **FinOps Efficiency:** Slashes baseline infrastructure costs by ~50% ($150/mo vs $300/mo) by eliminating an idle second EKS control plane ($73/mo), second NAT gateway ($32/mo), and cross-VPC peering routes.
+- **Sub-Millisecond In-Cluster Latency:** OTel DaemonSet agents stream directly to `otel-collector-tier1-router-collector.monitoring.svc.cluster.local:4317` via CoreDNS without traversing an external load balancer.
+- **Namespace & Node-Pool Isolation:** Application workloads run in `default` (or `workloads`), while observability backends run in `monitoring`. Teams needing compute isolation use dedicated node pools with taints (`dedicated=monitoring:NoSchedule`).
 
-**What it cost:** A second EKS control plane (~$73/month), a second NAT gateway, VPC peering routes in both directions, and a real constraint on the NLB: `nlb-target-type: instance` is set rather than `ip`, because peered-VPC traffic to pod IPs takes an asymmetric return path.
-
-**What it bought:** A genuine blast-radius boundary, independent scaling (the observability cluster runs Karpenter, the workload cluster does not need it), and the ability to demonstrate the multi-cluster fan-in that a regional platform actually looks like.
+#### Why Large Enterprises Run a Dedicated Observability Cluster ("Why Not Just Node Pools?"):
+1. **The "Watching the Watcher" Failure Domain:** If your workload cluster suffers a catastrophic failure (CoreDNS crash, VPC CNI IP exhaustion, etcd compaction lockup, or a broken control plane upgrade), an in-cluster observability stack dies *at the exact moment you need it most*. Alertmanager cannot fire, Grafana is down, and engineers are blind. A separate cluster guarantees telemetry persists during total workload cluster failure.
+2. **Control Plane & etcd Blast Radius:** Dedicated node pools isolate EC2 CPU and RAM, but they **cannot** isolate the shared Kubernetes API server, etcd database, or CoreDNS pods. High-throughput telemetry and continuous pod-discovery watches can overwhelm shared control plane resources.
+3. **N:1 Regional Fleet Aggregation:** Large enterprises operate 10 to 50+ clusters (Dev, Staging, Prod-US, Prod-EU, PCI-compliant). Deploying redundant Loki/Tempo/AMP instances in every cluster is financially wasteful and operationally unmanageable. A central observability cluster aggregates telemetry across all clusters over an internal NLB.
+4. **Security & Audit Isolation (SOC2 / PCI-DSS):** Compliance frameworks mandate that audit logs and system telemetry reside in a locked-down AWS security/monitoring account where application developers and workload pods have zero write/delete permissions.
 
 ---
 
-### 4. Self-Hosted LGTM on S3 (Chart Traps & Operational Surface)
+### 4. Storage Architecture: Serverless AMP + S3 Loki/Tempo
 
-**Chosen:** Loki, Tempo, Mimir, and Grafana from their individual upstream charts, all backed by S3, all reached through EKS Pod Identity rather than static credentials.
+**Chosen:** Amazon Managed Prometheus (AMP) for serverless metrics, paired with Grafana Loki and Grafana Tempo backed by Amazon S3 via free S3 Gateway VPC Endpoints.
 
-**Rejected — Amazon Managed Prometheus (AMP) + Managed Grafana (AMG):** Less to operate, but AMP is metrics only: traces and logs still need X-Ray and CloudWatch, so you get three query languages and no single correlated view.  
-**Rejected — Datadog or an equivalent SaaS:** Per-host and per-GB pricing makes the observability bill a function of traffic, and it puts the exit cost of the platform outside your control.  
-**Rejected — The all-in-one `lgtm` chart:** Convenient, but it hides which component owns which setting, and it cannot be tuned per component.
+**Why Serverless AMP over Self-Hosted Mimir:**
+- Eliminates 10 stateful Mimir microservice pods (distributor, ingester, querier, ruler, alertmanager, compactor), saving **~1.9 GiB RAM** on worker nodes.
+- Zero maintenance: no ring compactions, no etcd coordination, no persistent disk management for metric blocks.
+- Authenticates natively via AWS SigV4 through EKS Pod Identity.
+
+*(Note: Self-hosted Mimir remains fully supported as an opt-in alternative via `use_amazon_managed_prometheus = false` for local or non-AWS deployments).*
 
 #### Key Upstream Chart Traps Documented:
 
