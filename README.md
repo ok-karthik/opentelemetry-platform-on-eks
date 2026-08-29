@@ -7,52 +7,11 @@ By coupling tail-based sampling, S3 storage tiers, and serverless metric ingesti
 ---
 
 ## Architecture
-
 Deployable out-of-the-box in **Single-Cluster Mode (default, ~$150/mo)** using namespace and node-pool isolation, or in **Multi-Cluster Peered Mode (~$300/mo)** for regional hub aggregation across peered VPCs.
 
-```mermaid
-flowchart TB
-    subgraph EKSCluster["Amazon EKS Cluster (Single-Cluster Topology)"]
-        subgraph WorkloadsNS["Namespace: default (Application Workloads)"]
-            GoApp["golang-product-service\n(Programmatic Go SDK)"]
-            PyApp["python-product-info-service\n(Auto-Instrumented Python)"]
-            GoApp -.->|"Trace Context (W3C)"| PyApp
-            
-            DaemonSetAgent["OTel Collector DaemonSet (:4317)\nk8sattributes + filelog + kubeletstats"]
-            OBI["OBI eBPF DaemonSet\n(Kernel TCP & HTTP RED)"]
-            
-            GoApp -->|"OTLP (status.hostIP)"| DaemonSetAgent
-            PyApp -->|"OTLP (status.hostIP)"| DaemonSetAgent
-            OBI -->|"Kernel Probes (Loopback)"| DaemonSetAgent
-        end
+![Amazon EKS Observability Platform Architecture](.github/assets/single_cluster_architecture.png)
 
-        subgraph MonitoringNS["Namespace: monitoring (Observability Platform)"]
-            subgraph GatewayFleet["Central OTel Gateway Fleet"]
-                Router["Tier 1: Stateless Router\n(Consistent Hash by traceID)"]
-                Processor["Tier 2: Stateful Processor\n(Tail-Sampling + OTTL Normalization)"]
-                Router -->|"gRPC :4319 (Trace Affinity)"| Processor
-            end
-
-            subgraph Backends["Storage Backends (S3 & Serverless)"]
-                AMP[("Amazon Managed Prometheus\n(Serverless Metrics via SigV4)")]
-                Loki[("Grafana Loki (SingleBinary)\nS3 via Free VPC Endpoint")]
-                Tempo[("Grafana Tempo (Monolithic)\nS3 via Free VPC Endpoint")]
-            end
-
-            Grafana["Grafana UI\n(Unified Dashboards & Traces)"]
-            Grafana -->|"SigV4 PromQL"| AMP
-            Grafana -->|"LogQL"| Loki
-            Grafana -->|"TraceQL"| Tempo
-        end
-
-        DaemonSetAgent -->|"OTLP / Gzip (In-Cluster CoreDNS)"| Router
-        Processor -->|"SigV4 Remote Write"| AMP
-        Processor -->|"Native OTLP"| Loki
-        Processor -->|"OTLP"| Tempo
-    end
-```
-
-> 💡 **Multi-Cluster Regional Hub Extension:** For organizations running dozens of Kubernetes clusters or separate AWS accounts, the Gateway exposes an internal AWS Network Load Balancer (NLB) over VPC Peering or AWS Transit Gateway to aggregate regional telemetry into this central cluster without modifying workload code.
+> 💡 **Multi-Cluster Regional Hub Extension:** For organizations running dozens of Kubernetes clusters or separate AWS accounts, the Gateway exposes an internal AWS Network Load Balancer (NLB) over VPC Peering or AWS Transit Gateway to aggregate regional telemetry into this central cluster without modifying workload code. 👉 *See [docs/architectural-decisions.md#3-cluster-topology-single-cluster-default-vs-multi-cluster-regional-hub](docs/architectural-decisions.md#3-cluster-topology-single-cluster-default-vs-multi-cluster-regional-hub) for the multi-cluster peered architecture diagram and full trade-off analysis.*
 
 ### The Telemetry Flow (In 5 Steps)
 

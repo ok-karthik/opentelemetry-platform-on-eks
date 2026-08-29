@@ -49,10 +49,18 @@ This document details the architectural rationale, trade-offs, and design choice
 
 **Chosen:** Support two distinct operational modes, with **Single-Cluster Mode (`SINGLE_CLUSTER=true`, ~$150/mo)** as the recommended default for fast iteration and standard environments, and **Multi-Cluster Peered Mode (`SINGLE_CLUSTER=false`, ~$300/mo)** for regional fleet aggregation.
 
+#### Topology 1: Single-Cluster Mode (Default, ~$150/mo)
+![Single-Cluster Architecture](../.github/assets/single_cluster_architecture.png)
+
 #### Why Single-Cluster is the Default (The 80% Case):
 - **FinOps Efficiency:** Slashes baseline infrastructure costs by ~50% ($150/mo vs $300/mo) by eliminating an idle second EKS control plane ($73/mo), second NAT gateway ($32/mo), and cross-VPC peering routes.
 - **Sub-Millisecond In-Cluster Latency:** OTel DaemonSet agents stream directly to `otel-collector-tier1-router-collector.monitoring.svc.cluster.local:4317` via CoreDNS without traversing an external load balancer.
 - **Namespace & Node-Pool Isolation:** Application workloads run in `default` (or `workloads`), while observability backends run in `monitoring`. Teams needing compute isolation use dedicated node pools with taints (`dedicated=monitoring:NoSchedule`).
+
+---
+
+#### Topology 2: Multi-Cluster Peered Mode (~$300/mo)
+![Multi-Cluster Architecture](../.github/assets/multi_cluster_architecture.png)
 
 #### Why Large Enterprises Run a Dedicated Observability Cluster ("Why Not Just Node Pools?"):
 1. **The "Watching the Watcher" Failure Domain:** If your workload cluster suffers a catastrophic failure (CoreDNS crash, VPC CNI IP exhaustion, etcd compaction lockup, or a broken control plane upgrade), an in-cluster observability stack dies *at the exact moment you need it most*. Alertmanager cannot fire, Grafana is down, and engineers are blind. A separate cluster guarantees telemetry persists during total workload cluster failure.
