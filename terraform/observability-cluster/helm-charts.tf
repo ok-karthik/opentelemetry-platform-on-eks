@@ -265,6 +265,7 @@ resource "helm_release" "loki" {
     module.eks,
     helm_release.cluster_storage,
     aws_eks_pod_identity_association.loki,
+    helm_release.aws_lb_controller,
   ]
 }
 
@@ -295,6 +296,7 @@ resource "helm_release" "tempo" {
     module.eks,
     helm_release.cluster_storage,
     aws_eks_pod_identity_association.tempo,
+    helm_release.aws_lb_controller,
   ]
 }
 
@@ -326,6 +328,7 @@ resource "helm_release" "mimir" {
   depends_on = [
     module.eks,
     helm_release.cluster_storage,
+    helm_release.aws_lb_controller,
   ]
 }
 
@@ -358,6 +361,7 @@ resource "helm_release" "grafana" {
     module.eks,
     helm_release.loki,
     helm_release.tempo,
+    helm_release.aws_lb_controller,
   ]
 }
 
