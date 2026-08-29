@@ -15,13 +15,16 @@ DOCKERHUB_USER_NAME ?=
 TF_DIR := $(if $(filter true,$(SINGLE_CLUSTER)),terraform/single-cluster,terraform)
 TARGET_APPS_CLUSTER := $(if $(filter true,$(SINGLE_CLUSTER)),$(OTEL_CLUSTER),$(APPS_CLUSTER))
 
-.PHONY: help k8s-create k8s-create-infra k8s-create-helm k8s-destroy k8s-context k8s-deploy-all k8s-deploy-otel k8s-deploy-apps k8s-undeploy-all k8s-dashboards grafana-password k8s-status helm-lint ecr-build-push docker-build-push
+.PHONY: help k8s-all k8s-create k8s-create-infra k8s-create-helm k8s-destroy k8s-context k8s-deploy-all k8s-deploy-otel k8s-deploy-apps k8s-undeploy-all k8s-dashboards grafana-password k8s-status helm-lint ecr-build-push docker-build-push
 
 help: ## Show this help message
 	@echo "Usage: make [target] [SINGLE_CLUSTER=true]"
 	@echo ""
+	@echo "All-in-One Deployment:"
+	@echo "  k8s-all              Complete end-to-end setup: creates infra, installs Helm, and deploys apps"
+	@echo ""
 	@echo "AWS EKS Infrastructure (Terraform):"
-	@echo "  k8s-create           Create EKS cluster(s) + deploy Helm charts (use SINGLE_CLUSTER=true for fast single-cluster mode)"
+	@echo "  k8s-create           Create EKS cluster(s) + deploy Helm charts (Stage 1 + Stage 2)"
 	@echo "  k8s-create-infra     Stage 1 only — EKS, VPC, IAM, S3 (no Helm). Safe to re-run."
 	@echo "  k8s-create-helm      Stage 2 only — Helm charts only. Assumes EKS is already up."
 	@echo "  k8s-destroy          Destroy all AWS resources via Terraform"
@@ -91,6 +94,9 @@ INFRA_TARGETS_MULTI := \
   -target='aws_route.otel_to_apps'
 
 ACTIVE_INFRA_TARGETS := $(if $(filter true,$(SINGLE_CLUSTER)),$(INFRA_TARGETS_SHARED),$(INFRA_TARGETS_MULTI))
+
+k8s-all: k8s-create k8s-deploy-all ## Complete end-to-end deployment: creates EKS infra, installs Helm, and deploys apps
+	@echo "=== All-in-One Deployment Completed Successfully! ==="
 
 k8s-create: ## Create EKS cluster(s) and deploy Helm charts (use SINGLE_CLUSTER=true for single cluster)
 	@echo "=== Stage 1: Provisioning EKS infra in $(TF_DIR) ==="
@@ -205,7 +211,7 @@ k8s-deploy-apps:
 	@echo "Applying Namespace in $(TARGET_APPS_CLUSTER)..."
 	kubectl --context $(TARGET_APPS_CLUSTER) create namespace monitoring --dry-run=client -o yaml | kubectl --context $(TARGET_APPS_CLUSTER) apply -f -
 	$(eval DOCKER_USER := $(strip $(DOCKERHUB_USER_NAME)))
-	$(eval REGISTRY := $(if $(DOCKER_USER),$(DOCKER_USER),ok-karthik))
+	$(eval REGISTRY := $(if $(DOCKER_USER),$(DOCKER_USER),okkarthik))
 	@echo "Using Image Registry / Prefix: $(REGISTRY)"; \
 	if [ "$(SINGLE_CLUSTER)" = "true" ]; then \
 		echo "Single-cluster mode: Routing OTel telemetry directly via in-cluster DNS..."; \

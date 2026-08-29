@@ -212,8 +212,8 @@ Both the workload VPC and the observability VPC provision an `aws_vpc_endpoint` 
 ### Container Image Delivery (Docker Hub vs. ECR)
 
 All workload demo services are published as public multi-arch images on Docker Hub:
-- `ok-karthik/golang-product-service:latest`
-- `ok-karthik/python-product-info-service:latest`
+- `okkarthik/golang-product-service:latest`
+- `okkarthik/python-product-info-service:latest`
 
 Terraform ECR repositories (`terraform/ecr.tf`) have been removed. Application manifests deploy directly without requiring AWS account ID interpolation, ECR authorization tokens, or pre-created registries.
 

@@ -15,7 +15,7 @@ Deployable out-of-the-box in **Single-Cluster Mode (default, ~$150/mo)** using n
 
 ### The Telemetry Flow (In 5 Steps)
 
-1. **Multi-Tier Instrumentation:** Go microservice (programmatic OTel SDK) calls a Python service (OTel Operator auto-instrumentation) and propagates W3C trace context, while OBI eBPF captures kernel-level TCP and HTTP metrics non-invasively. Both run pre-built multi-arch images from Docker Hub (`ok-karthik/*`).
+1. **Multi-Tier Instrumentation:** Go microservice (programmatic OTel SDK) calls a Python service (OTel Operator auto-instrumentation) and propagates W3C trace context, while OBI eBPF captures kernel-level TCP and HTTP metrics non-invasively. Both run pre-built multi-arch images from Docker Hub (`okkarthik/*`).
 2. **Node-Local Enrichment:** Pods stream OTLP to their node-local collector via Downward API `status.hostIP:4317` (preserving `k8sattributes` cache locality). The DaemonSet enriches metadata, tails pod logs, and batches telemetry before shipping directly to the gateway via in-cluster CoreDNS (or internal NLB in multi-cluster mode).
 3. **Consistent-Hash Gateway Routing:** The Tier 1 Gateway routes traces by `trace_id` consistent hashing to guarantee that all spans of a distributed trace converge on the exact same Tier 2 collector replica.
 4. **Platform Policy & Sampling:** The Tier 2 Gateway strips noisy health checks, normalizes HTTP semantic conventions, retains 100% of errors/slow calls while sampling down healthy `200 OK` traces, and applies gzip compression.
@@ -194,7 +194,7 @@ Stated plainly, because these read as features if you only skim the directory tr
 
 - AWS credentials with Admin/PowerUser permissions (`aws configure`). Region defaults to `us-east-1`.
 - `kubectl` 1.23+, `terraform` 1.5.0+, `helm` 3.x, `python3`.
-- Demo application images are publicly hosted on Docker Hub (`ok-karthik/*`). No manual image builds or ECR logins are needed.
+- Demo application images are publicly hosted on Docker Hub (`okkarthik/*`). No manual image builds or ECR logins are needed.
 
 ### Cost Warning
 

@@ -1,7 +1,11 @@
 # ==============================================================================
-# Argo CD Root Application (App-of-Apps Pattern)
+# [OPTIONAL / REFERENCE TEMPLATE] Argo CD Root Application (App-of-Apps Pattern)
 # ==============================================================================
-# Managed via AWS EKS Managed Capability for Argo CD (`control-plane-argocd`).
+# NOTE: Active deployment in this repository is managed directly via Terraform
+# (`make k8s-create`) and Makefile (`make k8s-deploy-all`).
+#
+# This file serves as an enterprise reference template if you choose to enable
+# the AWS EKS Managed Capability for Argo CD (`control-plane-argocd`) on the cluster.
 #
 # HOW IT WORKS:
 # - Runs inside AWS-managed service infrastructure (zero worker node compute/RAM).

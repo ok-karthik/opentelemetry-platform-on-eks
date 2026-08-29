@@ -61,6 +61,8 @@ spec:
         - name: postgres
           image: postgres:16.4-alpine
           env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_DB
               value: goalert
             - name: POSTGRES_USER
@@ -77,10 +79,10 @@ spec:
               mountPath: /var/lib/postgresql/data
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
+              cpu: 100m
               memory: 256Mi
+            limits:
+              memory: 512Mi
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -127,13 +129,13 @@ spec:
           # run` example sets them this way, not via flags); default listen
           # port is already 8081, matching the image's EXPOSE.
           env:
-            - name: GOALERT_DB_URL
-              value: "postgres://goalert:$(POSTGRES_PASSWORD)@goalert-postgres:5432/goalert?sslmode=disable"
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: goalert-db-credentials
                   key: POSTGRES_PASSWORD
+            - name: GOALERT_DB_URL
+              value: "postgres://goalert:$(POSTGRES_PASSWORD)@goalert-postgres:5432/goalert?sslmode=disable"
             - name: GOALERT_DATA_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:

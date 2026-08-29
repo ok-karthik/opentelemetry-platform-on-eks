@@ -26,6 +26,10 @@ spec:
     - baggage       # W3C baggage standard
     - b3            # Legacy Zipkin standard (for compatibility with older services)
 
+  # ==================== Sampler Configuration ====================
+  sampler:
+    type: parentbased_always_on
+
   # ==================== Language Configuration ====================
   python:
     # The operator mounts this image and uses its files to auto-instrument the pod.

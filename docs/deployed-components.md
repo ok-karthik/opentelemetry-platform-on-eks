@@ -44,8 +44,8 @@ This document provides the full, version-pinned inventory of all deployed worklo
 | **OTel Operator** | `opentelemetry-operator` | `0.120.0` | 1 pod | Injects Python runtime auto-instrumentation via pod annotations. |
 | **cert-manager** | `jetstack/cert-manager` | `v1.21.1` | 3 pods | Webhook TLS for OTel Operator admission controller. |
 | **AWS Load Balancer Controller** | `eks/aws-load-balancer-controller` | `3.4.3` | 1 pod | Manages the internet-facing Application Load Balancer for the demo app. |
-| **Go Product Service** | `ok-karthik/golang-product-service` | `latest` (Docker Hub) | 2 replicas, Deployment + ClusterIP | Programmatically instrumented via OpenTelemetry Go SDK (`telemetry.go`), emits W3C trace context. |
-| **Python Product Info Service** | `ok-karthik/python-product-info-service` | `latest` (Docker Hub) | 2 replicas, Deployment + ClusterIP | Auto-instrumented by OTel Operator (`instrumentation.opentelemetry.io/inject-python`). |
+| **Go Product Service** | `okkarthik/golang-product-service` | `latest` (Docker Hub) | 2 replicas, Deployment + ClusterIP | Programmatically instrumented via OpenTelemetry Go SDK (`telemetry.go`), emits W3C trace context. |
+| **Python Product Info Service** | `okkarthik/python-product-info-service` | `latest` (Docker Hub) | 2 replicas, Deployment + ClusterIP | Auto-instrumented by OTel Operator (`instrumentation.opentelemetry.io/inject-python`). |
 
 ---
 
