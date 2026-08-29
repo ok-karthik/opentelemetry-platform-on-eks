@@ -93,7 +93,7 @@ flowchart LR
 | [`observability-platform/onboarding/`](observability-platform/onboarding/) | Service onboarding contract, multi-runtime CRs, and Go SDK template | *Contract / Template* |
 | [`observability-platform/gateway-policies/`](observability-platform/gateway-policies/) | Multi-tenant routing and tail-sampling budgeting policy templates | *Template* |
 | [`observability-platform/dashboards-and-alerts/`](observability-platform/dashboards-and-alerts/) | Golden signals dashboards, PrometheusRule generator chart, and meta-monitoring | *Deployed & Template* |
-| [`observability-platform/gitops/`](observability-platform/gitops/) | Argo CD App-of-Apps and regional cluster baseline manifests | *Template* |
+| [`observability-platform/argocd/`](observability-platform/argocd/) | Argo CD App-of-Apps reference template | *Template* |
 | [`docs/`](docs/) | Decisions, multi-tenancy, deployed components inventory, and roadmap | *Documentation* |
 | [`.agents/AGENTS.md`](.agents/AGENTS.md) | Agent operational workflows, mental model, and failure traps | *Documentation* |
 
@@ -138,9 +138,10 @@ observability-platform/             # Platform-team-owned product
     golden-signals/                 # DEPLOYED  Dashboard JSONs
     helm-chart/                     # TEMPLATE  SLO chart generator
     META_MONITORING.md              #   Meta-monitoring guide
-  gitops/                           # TEMPLATE  GitOps baseline
-    gitops-app-of-apps/             #   Argo CD root application
-    workload-cluster-baseline/      #   Regional gateway aliases
+  argocd/                           # TEMPLATE  Argo CD App-of-Apps
+    root-application.yaml           #   Parent App-of-Apps application
+    appproject-platform.yaml        #   Platform AppProject
+    apps/                           #   Child applications
 
 terraform/                          # Cloud infrastructure
   main.tf                           # Multi-cluster entrypoint
@@ -181,7 +182,7 @@ Stated plainly, because these read as features if you only skim the directory tr
 
 - **Multi-tenant routing** — [`otel-gateway-multitenant.yaml`](observability-platform/gateway-policies/otel-gateway-multitenant.yaml) is a template. The deployed gateway currently routes to a single default tenant.
 - **The dashboard-and-alert generator chart** — `observability-platform/dashboards-and-alerts/helm-chart/` is a reusable Helm chart generating Kubernetes Prometheus rule definitions. Deployed golden-signal dashboards run directly in Grafana via ConfigMaps.
-- **GitOps** — `observability-platform/gitops/` contains an Argo CD app-of-apps pointing at a placeholder repo URL. Deployment is `kubectl apply` from the Makefile.
+- **GitOps** — `observability-platform/argocd/` contains an Argo CD App-of-Apps template. Deployment in this repository is managed directly via Terraform & Makefile.
 - **Gateway autoscaling** — the HPA is declared (2–10 replicas at 80% CPU) but no metrics-server is installed by this repo, so it has no metric source. The replica count is effectively fixed at 2.
 - **Transport security** — every OTLP hop sets `tls.insecure: true`. The ingest NLB is internal, but the Grafana ALB is internet-facing on plain HTTP with no TLS and no SSO. Fine for a sandbox, not for production.
 - **Terraform state** — local only. No remote S3 backend or state locking configured.

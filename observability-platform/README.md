@@ -23,7 +23,7 @@ observability-platform/
 ├── onboarding/                        # Paved Road: Service contract, 4 levels of instrumentation & SDK templates
 ├── gateway-policies/                  # Platform Policies: Multitenant routing & sampling budgets
 ├── dashboards-and-alerts/             # Visuals & SRE: Raw dashboard JSONs, Helm charts, and META_MONITORING.md
-└── gitops/                            # GitOps: Argo CD app-of-apps & regional gateway baseline aliases
+└── argocd/                            # GitOps: Argo CD App-of-Apps reference template
 ```
 
 ---

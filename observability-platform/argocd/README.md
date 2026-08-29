@@ -1,6 +1,6 @@
-# Cluster GitOps & Baseline
+# Argo CD App-of-Apps Pattern (EKS Managed Capabilities)
 
-This directory demonstrates how a platform team exposes observability as a reusable GitOps product and how workload clusters consume it securely using **Amazon EKS Managed Capabilities**.
+This directory demonstrates how a platform team exposes observability as a reusable GitOps product using **Amazon EKS Managed Capabilities for Argo CD (`control-plane-argocd`)**.
 
 ---
 
@@ -16,12 +16,11 @@ Rather than self-hosting 5–7 pods (Argo CD server, repo-server, application-co
 
 ---
 
-## 2. Contents
+## 2. Directory Layout
 
-- **`gitops-app-of-apps/`**: Declarative Argo CD Application manifests leveraging the App-of-Apps pattern.
-  - `root-application.yaml`: The parent application that syncs and orchestrates all child platform applications.
-  - `apps/`: Child applications deploying workload instrumentation, golden signal dashboards, and regional routing.
-- **`workload-cluster-baseline/`**: Standard Kubernetes baseline templates that provide stable internal DNS aliases for cross-cluster OTLP telemetry forwarding.
+- **`root-application.yaml`**: The parent Argo CD `Application` (App-of-Apps) that automatically discovers and synchronizes all child applications in `apps/`.
+- **`appproject-platform.yaml`**: The `AppProject` restricting destination namespaces and permitted source repositories.
+- **`apps/`**: Declarative child `Application` resources (e.g., `product-info-observability.yaml`) defining workload dashboard and alerting subscriptions.
 
 ---
 
@@ -39,18 +38,5 @@ App Repo Values (GitHub)
 2. Click **Create capabilities** and select **Argo CD** (`control-plane-argocd`).
 3. Apply the root application:
    ```bash
-   kubectl apply -f observability-platform/gitops/gitops-app-of-apps/root-application.yaml
+   kubectl apply -f observability-platform/argocd/root-application.yaml
    ```
-
----
-
-## 4. Workload Cluster Baseline
-
-Workload clusters never hardcode private AWS NLB DNS hostnames or vendor backend endpoints. Instead, they expose a single stable in-cluster `ExternalName` alias:
-
-```text
-Workload OTel Collector DaemonSet
-  -> otel-gateway-regional.monitoring.svc.cluster.local
-  -> AWS Network Load Balancer (NLB) (Instance Target Type)
-  -> Central Observability Gateway Fleet (Tier 1 Routers -> Tier 2 Processors)
-```

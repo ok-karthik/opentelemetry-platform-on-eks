@@ -6,13 +6,13 @@ metadata:
 spec:
   project: platform
   sources:
-    - repoURL: https://github.example.internal/platform/observability-platform.git
+    - repoURL: https://github.com/ok-karthik/opentelemetry-platform-on-eks.git
       targetRevision: main
-      path: observability-platform/dashboard-and-alert-generators/helm-chart
+      path: observability-platform/dashboards-and-alerts/helm-chart
       helm:
         valueFiles:
           - $values/observability/product-info-values.yaml
-    - repoURL: https://github.example.internal/apps/product-info-service.git
+    - repoURL: https://github.com/ok-karthik/opentelemetry-platform-on-eks.git
       targetRevision: main
       ref: values
   destination:
