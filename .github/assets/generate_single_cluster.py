@@ -9,12 +9,10 @@ from diagrams.onprem.tracing import Tempo
 script_dir = os.path.dirname(os.path.abspath(__file__))
 diagram_filename = os.path.join(script_dir, "single_cluster_architecture")
 
-# Increased ranksep to give horizontal flow more breathing room
-# Optional: Change splines to "ortho" for rigid 90-degree angles (classic draw.io look)
 graph_attr = {
     "pad": "0.5",
     "nodesep": "0.8",
-    "ranksep": "2.5", 
+    "ranksep": "2.2", 
     "splines": "spline",
     "fontsize": "20",
     "dpi": "300"
@@ -24,13 +22,12 @@ node_attr = {
     "fontsize": "13"
 }
 
-cluster_attr = {
-    "fontsize": "15",
-    "margin": "25"
-}
+stack_bottom = {"bgcolor": "#CBD5E1", "margin": "12", "penwidth": "1"} 
+stack_middle = {"bgcolor": "#F1F5F9", "margin": "12", "penwidth": "1"} 
+stack_top    = {"bgcolor": "#FFFFFF", "margin": "25", "penwidth": "1"} 
 
 with Diagram(
-    "Amazon EKS Observability Platform (Single-Cluster Mode)",
+    "Amazon EKS Topology (Nodes & Scalable Workloads)",
     show=False,
     filename=diagram_filename,
     outformat="png",
@@ -38,49 +35,71 @@ with Diagram(
     graph_attr=graph_attr,
     node_attr=node_attr
 ):
-    with Cluster("Amazon EKS Cluster (VPC 10.0.0.0/16)", graph_attr=cluster_attr):
+    with Cluster("Amazon EKS Cluster (VPC 10.0.0.0/16)", graph_attr={"fontsize": "15", "margin": "25"}):
         
-        # Namespace: default
-        with Cluster("Namespace: default (Application Workloads)", graph_attr=cluster_attr):
-            go_app = Pod("Go Product Service\n(Programmatic SDK)")
-            py_app = Pod("Python Info Service\n(Auto-Instrumented)")
-            obi_ebpf = DaemonSet("OBI eBPF Agent\n(Kernel TCP/HTTP RED)")
-            otel_daemon = DaemonSet("OTel DaemonSet (:4317)\nk8sattributes + filelog")
+        # 1. Application Node Pool
+        with Cluster("Worker Nodes (App Pool)", graph_attr=stack_bottom):
+            with Cluster("", graph_attr=stack_middle):
+                with Cluster("", graph_attr=stack_top):
+                    
+                    # Grouping workloads in a dashed container on the left
+                    with Cluster("App Workloads", graph_attr={"bgcolor": "transparent", "style": "dashed", "penwidth": "2"}):
+                        go_app = Pod("Go Product Service\n(Programmatic SDK)")
+                        py_app = Pod("Python Info Service\n(Auto-Instrumented)")
+                    
+                    # Declared independently so they sit to the right of the dashed container
+                    with Cluster("Host-Level Agents", graph_attr={"bgcolor": "transparent", "penwidth": "0", "margin": "0"}):
+                        obi_ebpf = DaemonSet("OBI eBPF Agent\n(Kernel TCP/HTTP RED)")
+                        otel_daemon = DaemonSet("OTel DaemonSet (:4317)\n(k8sattributes + filelog)")
 
-            go_app >> Edge(style="dashed", label="W3C Context") >> py_app
-            go_app >> Edge(color="darkorange", label="status.hostIP") >> otel_daemon
-            py_app >> Edge(color="darkorange", label="status.hostIP") >> otel_daemon
-            obi_ebpf >> Edge(color="purple", label="Loopback") >> otel_daemon
+        # 2. Observability Node Pool
+        with Cluster("Worker Nodes (Observability Pool)", graph_attr=stack_bottom):
+            with Cluster("", graph_attr=stack_middle):
+                with Cluster("", graph_attr=stack_top):
+                    router = Deployment("Tier 1: Router\n(Deployment + HPA)")
+                    processor = Deployment("Tier 2: Processor\n(Deployment + HPA)")
 
-        # Namespace: monitoring
-        with Cluster("Namespace: monitoring (Observability Platform)", graph_attr=cluster_attr):
-            
-            with Cluster("Central OTel Gateway Fleet", graph_attr=cluster_attr):
-                router = Deployment("Tier 1: Router\n(Consistent Hashing)")
-                processor = Deployment("Tier 2: Processor\n(Tail-Sampling + OTTL)")
-                router >> Edge(label="gRPC :4319\n(Trace Affinity)") >> processor
+        # Storage Backends
+        with Cluster("Storage Backends (S3 & Serverless)", graph_attr={"fontsize": "15", "margin": "25"}):
+            tempo = Tempo("Grafana Tempo\n(S3 Traces)")
+            loki = Loki("Grafana Loki\n(S3 Logs)")
+            amp = Cloudwatch("Amazon Managed\nPrometheus (AMP)")
 
-            # Storage Backends Container
-            # Removing the invisible edges allows these to naturally stack vertically
-            # because they share the same rank from the Processor's perspective.
-            with Cluster("Storage Backends (S3 & Serverless)", graph_attr=cluster_attr):
-                tempo = Tempo("Grafana Tempo\n(S3 Traces)")
-                loki = Loki("Grafana Loki\n(S3 Logs)")
-                amp = Cloudwatch("Amazon Managed\nPrometheus (AMP)")
+        grafana = Grafana("Grafana UI\n(Unified Single-Pane)")
 
-            grafana = Grafana("Grafana UI\n(Unified Single-Pane)")
+    # ==========================================
+    # STRUCTURAL ROUTING HACKS (THE MAGIC)
+    # ==========================================
+    
+    # 1. Pull the Go App to the TOP-LEFT
+    go_app >> Edge(style="invis") >> router
 
-        # 1. Clean Data Ingestion: Symmetrical paths feeding into the vertical storage stack
-        otel_daemon >> Edge(color="darkblue", label="OTLP / CoreDNS") >> router
-        
-        processor >> Edge(color="royalblue", label="OTLP") >> tempo
-        processor >> Edge(color="firebrick", label="Native OTLP") >> loki
-        processor >> Edge(color="darkorange", label="SigV4 Remote Write") >> amp
+    # 2. Push the DaemonSets to the BOTTOM-RIGHT by linking to the bottom app INVISIBLY.
+    # This physically drops the agents into the corner without cluttering the diagram with lines.
+    py_app >> Edge(style="invis") >> obi_ebpf
+    
+    # 3. Keep the W3C Context visually without breaking the layout.
+    go_app >> Edge(style="dashed", label="W3C Context", constraint="false") >> py_app
 
-        # 2. Clean UI Queries (The Reverse Edge Trick):
-        # We declare the edges flowing FROM storage TO grafana, which forces Grafana 
-        # to the far right. We then use dir="back" so the arrows visually point 
-        # backwards (FROM grafana TO storage), maintaining architectural accuracy.
-        amp >> Edge(dir="back", color="darkorange", label="SigV4 PromQL") >> grafana
-        loki >> Edge(dir="back", color="firebrick", label="LogQL") >> grafana
-        tempo >> Edge(dir="back", color="royalblue", label="TraceQL") >> grafana
+    # ==========================================
+    # STANDARD DATA FLOW
+    # ==========================================
+
+    # OBI eBPF talks to OTel Collector over the node loopback (hostNetwork: true)
+    obi_ebpf >> Edge(color="purple", label="Loopback (:4318)") >> otel_daemon
+
+    # Egress from DaemonSet to Gateway
+    otel_daemon >> Edge(color="darkblue", label="OTLP / CoreDNS", penwidth="2") >> router
+
+    # Gateway internal routing
+    router >> Edge(label="gRPC :4319\n(Trace Affinity)") >> processor
+
+    # Egress to Storage Backends
+    processor >> Edge(color="royalblue", label="OTLP") >> tempo
+    processor >> Edge(color="firebrick", label="Native OTLP") >> loki
+    processor >> Edge(color="darkorange", label="SigV4 Remote Write") >> amp
+
+    # The Reverse Edge Trick (UI Queries)
+    amp >> Edge(dir="back", color="darkorange", label="SigV4 PromQL") >> grafana
+    loki >> Edge(dir="back", color="firebrick", label="LogQL") >> grafana
+    tempo >> Edge(dir="back", color="royalblue", label="TraceQL") >> grafana
