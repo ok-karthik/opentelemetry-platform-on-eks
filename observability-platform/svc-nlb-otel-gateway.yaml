@@ -16,8 +16,8 @@ metadata:
 spec:
   type: LoadBalancer
   selector:
-    # Selects the Tier 1 Router pods managed by the OTel Operator
-    app.kubernetes.io/name: otel-collector-tier1-router-collector
+    # Selects the Tier 2 Router pods managed by the OTel Operator
+    app.kubernetes.io/name: otel-collector-tier2-router-collector
     app.kubernetes.io/managed-by: opentelemetry-operator
   ports:
     - name: otlp-grpc

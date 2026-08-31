@@ -36,7 +36,7 @@ with Diagram(
     graph_attr=graph_attr,
     node_attr=node_attr
 ):
-    with Cluster("Amazon EKS Cluster (VPC 10.0.0.0/16)", graph_attr={"fontsize": "15", "margin": "25"}):
+    with Cluster("Amazon EKS Cluster (VPC 10.1.0.0/16)", graph_attr={"fontsize": "15", "margin": "25"}):
         
         # 1. Application Node Pool
         with Cluster("Worker Nodes (App Pool)", graph_attr=stack_bottom):
@@ -50,15 +50,15 @@ with Diagram(
                     
                     # Declared independently so they sit to the right of the dashed container
                     with Cluster("Host-Level Agents", graph_attr={"bgcolor": "transparent", "penwidth": "0", "margin": "0"}):
-                        obi_ebpf = DaemonSet("OBI eBPF Agent\n(Kernel TCP/HTTP RED)")
-                        otel_daemon = DaemonSet("Filebeat/Otel DaemonSet (:4317)\n(k8sattributes + filelog)")
+                        obi_ebpf = DaemonSet("OBI eBPF Agent\n(Rate, Errors, Duration)")
+                        otel_daemon = DaemonSet("Tier 1: OTel Agent DaemonSet\n(k8sattributes + filelog :4317/:4318)")
 
         # 2. Observability Node Pool
         with Cluster("Worker Nodes (Observability Pool)", graph_attr=stack_bottom):
             with Cluster("", graph_attr=stack_middle):
                 with Cluster("", graph_attr=stack_top):
-                    router = Deployment("Tier 1: Router\n(Deployment + HPA)")
-                    processor = StatefulSet("Tier 2: Processor\n(Deployment + HPA)")
+                    router = Deployment("Tier 2: Stateless Router\n(Deployment + HPA)")
+                    processor = StatefulSet("Tier 3: Stateful Processor\n(StatefulSet + Tail Sampling)")
 
         # Storage Backends
         with Cluster("Storage Backends (S3 & Serverless)", graph_attr={"fontsize": "15", "margin": "25"}):
@@ -89,14 +89,14 @@ with Diagram(
     # OBI eBPF talks to OTel Collector over the node loopback (hostNetwork: true)
     obi_ebpf >> Edge(color="purple", label="Loopback (:4318)") >> otel_daemon
 
-    # Egress from DaemonSet to Gateway
-    otel_daemon >> Edge(color="darkblue", label="OTLP / CoreDNS", penwidth="2") >> router
+    # Egress from DaemonSet to Gateway Router
+    otel_daemon >> Edge(color="darkblue", label="OTLP gRPC (zstd)", penwidth="2") >> router
 
     # Gateway internal routing
-    router >> Edge(label="gRPC :4319\n(Trace Affinity)") >> processor
+    router >> Edge(label="gRPC :4319\n(Trace-ID Hash)") >> processor
 
     # Egress to Storage Backends
-    processor >> Edge(color="royalblue", label="OTLP") >> tempo
+    processor >> Edge(color="royalblue", label="OTLP (zstd)") >> tempo
     processor >> Edge(color="firebrick", label="Native OTLP") >> loki
     processor >> Edge(color="darkorange", label="SigV4 Remote Write") >> amp
 

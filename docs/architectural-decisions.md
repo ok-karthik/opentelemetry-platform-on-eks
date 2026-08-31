@@ -54,7 +54,7 @@ This document details the architectural rationale, trade-offs, and design choice
 
 #### Why Single-Cluster is the Default (The 80% Case):
 - **FinOps Efficiency:** Slashes baseline infrastructure costs by ~50% ($150/mo vs $300/mo) by eliminating an idle second EKS control plane ($73/mo), second NAT gateway ($32/mo), and cross-VPC peering routes.
-- **Sub-Millisecond In-Cluster Latency:** OTel DaemonSet agents stream directly to `otel-collector-tier1-router-collector.monitoring.svc.cluster.local:4317` via CoreDNS without traversing an external load balancer.
+- **Sub-Millisecond In-Cluster Latency:** OTel DaemonSet agents stream directly to `otel-collector-tier2-router-collector.monitoring.svc.cluster.local:4317` via CoreDNS without traversing an external load balancer.
 - **Namespace & Node-Pool Isolation:** Application workloads run in `default` (or `workloads`), while observability backends run in `monitoring`. Teams needing compute isolation use dedicated node pools with taints (`dedicated=monitoring:NoSchedule`).
 
 ---

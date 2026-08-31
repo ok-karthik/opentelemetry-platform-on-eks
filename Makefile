@@ -89,7 +89,7 @@ INFRA_TARGETS_SHARED := \
   -target='module.observability_stack.aws_iam_policy.otel_gateway_aws_ingest' \
   -target='module.observability_stack.aws_iam_role.otel_gateway' \
   -target='module.observability_stack.aws_iam_role_policy_attachment.otel_gateway_attach' \
-  -target='module.observability_stack.aws_eks_pod_identity_association.otel_gateway_tier2' \
+  -target='module.observability_stack.aws_eks_pod_identity_association.otel_gateway_tier3' \
   -target='module.observability_stack.aws_iam_policy.grafana_amp_query' \
   -target='module.observability_stack.aws_iam_role_policy_attachment.grafana_amp_query_attach' \
   -target='module.observability_stack.aws_eks_pod_identity_association.grafana' \
@@ -218,7 +218,7 @@ k8s-deploy-apps:
 	@echo "Using Image Registry / Prefix: $(REGISTRY)"; \
 	if [ "$(SINGLE_CLUSTER)" = "true" ]; then \
 		echo "Single-cluster mode: Routing OTel telemetry directly via in-cluster DNS..."; \
-		OTEL_GATEWAY_LB_HOST="otel-collector-tier1-router-collector.monitoring.svc.cluster.local"; \
+		OTEL_GATEWAY_LB_HOST="otel-collector-tier2-router-collector.monitoring.svc.cluster.local"; \
 	else \
 		echo "Waiting for OTel Gateway LoadBalancer hostname to be assigned..."; \
 		for i in $$(seq 1 30); do \
