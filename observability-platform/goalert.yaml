@@ -1,0 +1,187 @@
+# GoAlert — self-hosted on-call scheduling, escalation policies, and
+# notifications. The open-source PagerDuty-shaped piece this platform was
+# missing: Alertmanager can route and dedupe alerts, but has no concept of
+# "who is on call this week" or an escalation chain. See
+# opentelemetry-platform-on-eks's README Decision on why GoAlert specifically
+# (checked live: Grafana OnCall's self-hosted edition was archived in March
+# 2026, which ruled out the otherwise-obvious same-vendor-ecosystem pick).
+#
+# Image is pinned by digest, not tag. GoAlert stopped publishing numbered
+# version tags to Docker Hub after v0.31.0 (2023) — only `latest` and
+# branch-name tags exist there now, even though GitHub Releases continues
+# tagging real versions (v0.34.1, 2025-10-06). The digest below is `latest`
+# as of 2026-08-24, confirmed to correspond to GitHub release v0.34.1 by
+# matching push/publish timestamps. Re-resolve and re-pin if this drifts —
+# don't switch to the bare `latest` tag to "fix" a pull failure; that's the
+# unpinned-chart trap this repo's own conventions exist to avoid.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: goalert-db-credentials
+  namespace: monitoring
+type: Opaque
+stringData:
+  # Demo-only credential, matches this platform's existing posture (tls.insecure
+  # everywhere, auth_enabled: false on Mimir) — not for anything but a sandbox.
+  POSTGRES_PASSWORD: "goalert-demo-password"
+  # `openssl rand -hex 32` in production. GoAlert uses this to encrypt secrets
+  # (e.g. notification-provider credentials) at rest in Postgres — losing it
+  # after real data exists makes that data unrecoverable, not just re-keyable.
+  GOALERT_DATA_ENCRYPTION_KEY: "demo-encryption-key-not-for-production-use"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: goalert-postgres
+  namespace: monitoring
+spec:
+  selector:
+    app: goalert-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: goalert-postgres
+  namespace: monitoring
+spec:
+  serviceName: goalert-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: goalert-postgres
+  template:
+    metadata:
+      labels:
+        app: goalert-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16.4-alpine
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_DB
+              value: goalert
+            - name: POSTGRES_USER
+              value: goalert
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: goalert-db-credentials
+                  key: POSTGRES_PASSWORD
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goalert
+  namespace: monitoring
+  labels:
+    app: goalert
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: goalert
+  template:
+    metadata:
+      labels:
+        app: goalert
+    spec:
+      # GoAlert runs its own DB migrations on startup — the first pod to come
+      # up races the migration against Postgres actually being ready to
+      # accept connections. initContainer blocks on that instead of leaving
+      # GoAlert to crash-loop through its own retry logic.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16.4-alpine
+          command:
+            - sh
+            - -c
+            - until pg_isready -h goalert-postgres -p 5432 -U goalert; do sleep 2; done
+      containers:
+        - name: goalert
+          image: goalert/goalert@sha256:5f26d329de6563f718926600e3a8e7bb4599eb110394d56c77c9c34d4c4be499
+          # No CLI args — GOALERT_DB_URL and GOALERT_DATA_ENCRYPTION_KEY below
+          # are read directly as env vars (GoAlert's own documented `docker
+          # run` example sets them this way, not via flags); default listen
+          # port is already 8081, matching the image's EXPOSE.
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: goalert-db-credentials
+                  key: POSTGRES_PASSWORD
+            - name: GOALERT_DB_URL
+              value: "postgres://goalert:$(POSTGRES_PASSWORD)@goalert-postgres:5432/goalert?sslmode=disable"
+            - name: GOALERT_DATA_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: goalert-db-credentials
+                  key: GOALERT_DATA_ENCRYPTION_KEY
+          ports:
+            - containerPort: 8081
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: goalert
+  namespace: monitoring
+spec:
+  selector:
+    app: goalert
+  ports:
+    - port: 8081
+      targetPort: 8081
+
+# ==============================================================================
+# One-time manual bootstrap (GoAlert has no declarative way to do either of
+# these — both are genuinely interactive: an admin account and an escalation
+# policy / integration key are account state, not config):
+#
+# 1. Create the initial admin user:
+#      kubectl exec -n monitoring deploy/goalert -- \
+#        goalert add-user --db-url "$GOALERT_DB_URL" \
+#        --admin --user admin --email admin@example.com
+#    (prompts for a password interactively)
+#
+# 2. Port-forward and log in:
+#      kubectl port-forward -n monitoring svc/goalert 8081:8081
+#    Open http://localhost:8081, log in as admin, use the Setup Wizard
+#    (left sidebar) to create a service, escalation policy, schedule, and a
+#    "Generic API" integration on that service. Copy the integration key.
+#
+# 3. Wire it to Alertmanager: put the key into the GoAlert receiver's
+#    webhook URL in opentelemetry-platform-on-eks's
+#    terraform/modules/observability-stack/helm-values/mimir.yaml.tftpl
+#    (`http://goalert.monitoring.svc.cluster.local:8081/api/v2/generic/incoming?token=<key>`),
+#    then re-run the Helm stage (`make k8s-create-helm`).
+# ==============================================================================

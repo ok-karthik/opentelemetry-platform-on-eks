@@ -1,0 +1,31 @@
+{{- if .Values.alerts.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Values.serviceName }}-alerts
+  labels:
+    app: {{ .Values.serviceName }}
+    release: prometheus-operator # Common label to be picked up by the operator
+spec:
+  groups:
+    - name: {{ .Values.serviceName }}-alerts
+      rules:
+      {{- range .Values.alerts.rules }}
+        - alert: {{ .name }}
+          expr: >-
+            {{- if .threshold_ms }}
+            histogram_quantile(0.99, sum(rate({{ .metric }}[{{ .duration }}])) by (le, service_name)) > {{ .threshold_ms }}
+            {{- else if .error_threshold_percentage }}
+            sum(rate({{ .metric }}{status_code=~"5.."}[{{ .duration }}])) by (service_name) / sum(rate({{ .metric }}[{{ .duration }}])) by (service_name) > {{ mulf (float64 .error_threshold_percentage) 0.01 }}
+            {{- end }}
+          for: {{ .duration }}
+          labels:
+            severity: {{ .severity }}
+            team: {{ $.Values.ownerTeam }}
+            slack_channel: {{ $.Values.slackChannel }}
+            service: {{ $.Values.serviceName }}
+          annotations:
+            summary: {{ .description }}
+            runbook_url: "https://runbooks.playstation.net/{{ $.Values.serviceName }}/{{ .name | lower }}"
+      {{- end }}
+{{- end }}

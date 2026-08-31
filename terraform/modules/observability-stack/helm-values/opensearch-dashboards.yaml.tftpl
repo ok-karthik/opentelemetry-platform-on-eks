@@ -1,0 +1,26 @@
+# ==============================================================================
+# OpenSearch Dashboards — the Kibana-equivalent read surface for the ELK path.
+#
+# `DISABLE_SECURITY_DASHBOARDS_PLUGIN` has to pair with OpenSearch's own
+# `plugins.security.disabled: true` (opensearch.yaml.tftpl). Dashboards' own
+# security plugin talks to the backend's security plugin to authenticate —
+# with the backend's plugin disabled, an enabled Dashboards security plugin
+# has nothing to authenticate against and every login attempt fails. Same
+# failure shape as the `protocol: https` trap in opensearch.yaml.tftpl: two
+# settings that have to move together, or the working half hides the broken
+# one until someone tries to log in.
+# ==============================================================================
+
+opensearchHosts: "http://opensearch-cluster-master:9200"
+replicaCount: 1
+
+extraEnvs:
+  - name: DISABLE_SECURITY_DASHBOARDS_PLUGIN
+    value: "true"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    memory: 512Mi

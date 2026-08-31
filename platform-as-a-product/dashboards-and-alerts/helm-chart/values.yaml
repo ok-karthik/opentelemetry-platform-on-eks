@@ -1,0 +1,28 @@
+# Developer-friendly values for configuring Observability
+serviceName: "my-microservice"
+ownerTeam: "platform-engineering"
+slackChannel: "#alerts-platform"
+
+# Dashboard Configuration
+dashboards:
+  enabled: true
+  # Which template to use (e.g. go-service, python-service)
+  template: "go-service"
+
+# Alerts Configuration
+alerts:
+  enabled: true
+  rules:
+    - name: "HighLatency"
+      description: "P99 latency is greater than threshold"
+      severity: "critical"
+      metric: "http_server_duration_milliseconds"
+      duration: "5m"
+      threshold_ms: 500
+
+    - name: "HighErrorRate"
+      description: "Error rate is greater than threshold"
+      severity: "critical"
+      metric: "http_server_requests_total"
+      duration: "5m"
+      error_threshold_percentage: 5

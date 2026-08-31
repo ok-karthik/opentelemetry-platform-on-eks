@@ -15,21 +15,22 @@ Although the directories currently live in one repository, reason about them as 
 
 | Domain | Path | Ownership & Purpose |
 |---|---|---|
-| **Workloads** | `workloads/` | App-team-owned microservices (Go SDK & Python Operator), their Kubernetes manifests, and the per-node DaemonSet collector. |
-| **Platform** | `observability-platform/` | Platform-team-owned product: onboarding contracts, gateway policy, dashboards, SLO alerts, and GitOps baselines. |
-| **Infrastructure** | `terraform/` | Platform infrastructure: EKS clusters, VPCs, AMP workspaces, S3 storage, IAM Pod Identity, and Helm releases. |
-| **Architecture** | `docs/` | Deep-dive architectural decisions, trade-offs, and chart trap references. |
+| **Workloads** | `workloads/` | App-team-owned microservices (`golang-app`, `python-app`) and the per-node DaemonSet collector. |
+| **Observability Platform** | `observability-platform/` | Central gateway runtime manifests (Two-tier Router/Processor, NLB, Grafana ALB, GoAlert, alert rules). |
+| **Platform Product** | `platform-as-a-product/` | Platform product paved roads: onboarding contracts, 4 telemetry tiers, gateway policies, and GitOps baselines. |
+| **Infrastructure** | `terraform/` | Platform infrastructure: Day-1 EKS base module + Day-2 BYOC observability stack module. |
+| **Architecture** | `docs/` | Deep-dive architectural decisions, capacity planning (2k-200k QPS), multi-tenancy, and roadmap. |
 
 ### Topology Modes: Single-Cluster vs Multi-Cluster
 
 The platform can be provisioned in two distinct deployment modes controlled via the `SINGLE_CLUSTER` Makefile variable:
 
 1. **Single-Cluster Mode (`SINGLE_CLUSTER=true`, DEFAULT):**
-   - Provisions a single EKS cluster (`terraform/single-cluster/`) running both workloads and the observability stack.
+   - Provisions a single EKS cluster (`terraform/`) running both workloads and the observability stack.
    - Slashes costs from ~$300/mo to **~$150/mo** (1× control plane, 1× NAT gateway, serverless AMP metrics).
    - Fast to deploy and iterate on without cross-VPC peering latency.
 2. **Multi-Cluster Peered Mode (`SINGLE_CLUSTER=false`):**
-   - Provisions two separate EKS clusters (`terraform/observability-cluster/` and `terraform/apps-workload-cluster-1/`) across peered VPCs (`10.0.0.0/16` and `10.1.0.0/16`).
+   - Provisions separate EKS clusters across peered VPCs (`10.0.0.0/16` and `10.1.0.0/16`).
    - Demonstrates true multi-cluster regional ingestion over an internal AWS Network Load Balancer (NLB).
 
 The core telemetry flow is:
@@ -59,8 +60,9 @@ second copy drifts, and this file is the one agents read most.
 
 What the tree does not say, and this file is responsible for:
 
-- The directories under `observability-platform/` (`bootstrap-k8s-manifests/` for active manifests, and `platform-as-a-product/` containing `onboarding/`, `gateway-policies/`, `dashboards-and-alerts/`, `argocd/`) reflect the logical lifecycle (deployed runtime vs product paved roads).
-- Several of those directories are templates that nothing installs. Check the README's `DEPLOYED`/`TEMPLATE` markers before describing anything there as running.
+- `workloads/` houses self-contained microservices (Go SDK & Python app) with their code, Dockerfiles, and deployment YAMLs, plus the node agent.
+- `observability-platform/` contains active runtime gateway, Ingestion NLB, Grafana ALB, GoAlert, and alert rule manifests.
+- `platform-as-a-product/` contains platform governance: service onboarding contracts, 4 levels of instrumentation, gateway policy templates, and Argo CD GitOps templates.
 - `CLAUDE.md` at the repository root is a minimal pointer pointing directly to this file.
 
 Ignore local `.terraform/` generated state and modules unless explicitly asked.
@@ -69,7 +71,7 @@ Ignore local `.terraform/` generated state and modules unless explicitly asked.
 
 ### Workload Cluster Collector
 
-`workloads/k8s-manifests/otel-collector-daemonset.yaml` runs an OpenTelemetry Collector as a DaemonSet.
+`workloads/otel-collector-daemonset.yaml` runs an OpenTelemetry Collector as a DaemonSet.
 
 It is responsible for:
 
@@ -345,7 +347,7 @@ Helm ignores unknown value keys **silently**. A renamed path does not fail the i
 
 ### Backend chart values
 
-Values live in `terraform/observability-cluster/helm-values/*.yaml.tftpl`, not in `set` blocks. Each file carries the reasoning inline; the traps worth knowing before editing:
+Values live in `terraform/modules/observability-stack/helm-values/*.yaml.tftpl`, not in `set` blocks. Each file carries the reasoning inline; the traps worth knowing before editing:
 
 **Loki** (`grafana/loki`, SingleBinary) — the chart's production defaults are far too large for a demo node. `chunksCache` requests 9830Mi and `resultsCache` 1229Mi; neither can be scheduled on a t3-class node, so the release hangs on `wait` until timeout. `lokiCanary` and the nginx `gateway` are also on by default. All four are disabled, which makes the query/push endpoint `loki:3100` rather than `loki-gateway`.
 

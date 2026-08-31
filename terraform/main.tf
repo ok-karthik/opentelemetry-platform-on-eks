@@ -1,5 +1,9 @@
 # ==============================================================================
-# Root Terraform Orchestrator for Multi-Cluster EKS Observability Sandbox
+# Root Terraform Orchestrator
+#
+# Provides two primary consumption modes:
+# 1. Complete End-to-End Reference Platform (orchestrates eks_base + observability_stack)
+# 2. Bring Your Own Cluster (import observability_stack module into an existing EKS cluster)
 # ==============================================================================
 
 terraform {
@@ -9,72 +13,60 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.0"
+    }
+    http = {
+      source  = "hashicorp/http"
+      version = "~> 3.0"
+    }
   }
 }
 
 provider "aws" {
-  region = "us-east-1"
+  region = var.aws_region
 }
 
-# ==============================================================================
-# 1. Instantiate Application EKS Cluster Module
-# ==============================================================================
-module "apps_workload_cluster_1" {
-  source       = "./apps-workload-cluster-1"
-  aws_region   = "us-east-1"
-  cluster_name = "apps-workload-cluster-1"
-}
-
-variable "deploy_observability_stack" {
-  description = "Whether to deploy the observability Helm charts (Loki, Tempo, Mimir, Grafana)"
-  type        = bool
-  default     = false
-}
-
-variable "deploy_opensearch_stack" {
-  description = "Whether to deploy the optional enterprise OpenSearch, Dashboards, and Logstash stack"
-  type        = bool
-  default     = false
-}
-
-# ==============================================================================
-# 2. Instantiate Monitoring (OTel/LGTM) EKS Cluster Module
-# ==============================================================================
-module "observability_cluster" {
-  source                     = "./observability-cluster"
-  aws_region                 = "us-east-1"
-  cluster_name               = "observability-cluster"
-  deploy_observability_stack = var.deploy_observability_stack
-  deploy_opensearch_stack    = var.deploy_opensearch_stack
-}
-
-# ==============================================================================
-# 3. Establish VPC Peering Connection between both EKS Cluster VPCs
-# ==============================================================================
-resource "aws_vpc_peering_connection" "peering" {
-  vpc_id      = module.apps_workload_cluster_1.vpc_id
-  peer_vpc_id = module.observability_cluster.vpc_id
-  auto_accept = true
-
-  tags = {
-    Name = "eks-apps-to-otel-peering"
+# Configure the Helm provider to dynamically connect to the EKS cluster
+provider "helm" {
+  kubernetes {
+    host                   = module.eks_base.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks_base.cluster_certificate_authority_data)
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      args        = ["eks", "get-token", "--cluster-name", module.eks_base.cluster_name]
+      command     = "aws"
+    }
   }
 }
 
 # ==============================================================================
-# 4. Route Table Entries (Let VPC A and VPC B talk privately)
+# 1. Day-1 Base Infrastructure (VPC, EKS 1.35, Nodes, Karpenter, Core Addons)
 # ==============================================================================
+module "eks_base" {
+  source = "./modules/eks-base"
 
-# Route from Apps VPC to OTel VPC
-resource "aws_route" "apps_to_otel" {
-  route_table_id            = module.apps_workload_cluster_1.private_route_table_id
-  destination_cidr_block    = module.observability_cluster.vpc_cidr
-  vpc_peering_connection_id = aws_vpc_peering_connection.peering.id
+  aws_region                  = var.aws_region
+  cluster_name                = var.cluster_name
+  node_group_capacity_type    = var.node_group_capacity_type
+  node_group_instance_types   = var.node_group_instance_types
+  node_group_desired_capacity = var.node_group_desired_capacity
 }
 
-# Route from OTel VPC to Apps VPC
-resource "aws_route" "otel_to_apps" {
-  route_table_id            = module.observability_cluster.private_route_table_id
-  destination_cidr_block    = module.apps_workload_cluster_1.vpc_cidr
-  vpc_peering_connection_id = aws_vpc_peering_connection.peering.id
+# ==============================================================================
+# 2. Day-2 Observability Platform Stack (AMP, S3, Loki, Tempo, Mimir, Grafana)
+# ==============================================================================
+module "observability_stack" {
+  source = "./modules/observability-stack"
+
+  aws_region                    = var.aws_region
+  cluster_name                  = module.eks_base.cluster_name
+  deploy_observability_stack    = var.deploy_observability_stack
+  deploy_opensearch_stack       = var.deploy_opensearch_stack
+  use_amazon_managed_prometheus = var.use_amazon_managed_prometheus
+
+  depends_on = [
+    module.eks_base
+  ]
 }

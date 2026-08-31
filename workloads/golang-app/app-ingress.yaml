@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: default
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: "workload-1-app-alb"
+    # ==================== AWS ALB Ingress Controller Annotations ====================
+
+    # 1. Tells the AWS Load Balancer Controller to provision an Application Load Balancer
+    kubernetes.io/ingress.class: alb
+
+    # 2. Defines the scheme as public/internet-facing (creates a public DNS endpoint)
+    # What happens without it: It defaults to internal-facing (only accessible within the VPC)
+    alb.ingress.kubernetes.io/scheme: internet-facing
+
+    # 3. Target Type: IP (Direct Pod Routing)
+    # Why it's needed: Routes traffic directly from the ALB to the Pod IPs in the VPC.
+    # What happens without it: It defaults to 'instance' mode, which routes to EKS NodePorts,
+    # causing an extra network hop (ALB -> EC2 NodePort -> kube-proxy iptables -> Pod IP).
+    # Note: Requires AWS VPC CNI (default in EKS) where Pods have real VPC IP addresses.
+    alb.ingress.kubernetes.io/target-type: ip
+
+    # 4. ALB Grouping (Cost Optimization)
+    # Why it's needed: Groups multiple Ingress resources across namespaces into a single
+    # physical AWS ALB instance.
+    # What happens without it: AWS creates a separate ALB ($22+/month each) for every single
+    # Ingress YAML you apply, causing massive cloud bill inflation.
+    alb.ingress.kubernetes.io/group.name: app-group
+
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          # Route 1: Application Entrypoint (Go Product service)
+          - path: /product
+            pathType: Prefix
+            backend:
+              service:
+                name: golang-app
+                port:
+                  number: 8080

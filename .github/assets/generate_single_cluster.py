@@ -51,7 +51,7 @@ with Diagram(
                     # Declared independently so they sit to the right of the dashed container
                     with Cluster("Host-Level Agents", graph_attr={"bgcolor": "transparent", "penwidth": "0", "margin": "0"}):
                         obi_ebpf = DaemonSet("OBI eBPF Agent\n(Kernel TCP/HTTP RED)")
-                        otel_daemon = DaemonSet("OTel DaemonSet (:4317)\n(k8sattributes + filelog)")
+                        otel_daemon = DaemonSet("Filebeat/Otel DaemonSet (:4317)\n(k8sattributes + filelog)")
 
         # 2. Observability Node Pool
         with Cluster("Worker Nodes (Observability Pool)", graph_attr=stack_bottom):

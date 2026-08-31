@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-nlb-otel-gateway
+  namespace: monitoring
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-name: "obs-cluster-otel-gw"
+    # Provisions a high-performance Network Load Balancer (NLB) in AWS
+    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "instance" # Changed to instance to allow SNAT and resolve VPC peering asymmetric routing
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internal" # Kept private inside the VPC
+
+    # Enables topology aware routing in Kubernetes 1.27+
+    # https://oneuptime.com/blog/post/2026-01-30-kubernetes-service-topology/view
+    service.kubernetes.io/topology-mode: Auto
+spec:
+  type: LoadBalancer
+  selector:
+    # Selects the Tier 1 Router pods managed by the OTel Operator
+    app.kubernetes.io/name: otel-collector-tier1-router-collector
+    app.kubernetes.io/managed-by: opentelemetry-operator
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318

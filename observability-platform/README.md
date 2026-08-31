@@ -1,6 +1,6 @@
-# Observability Platform
+# Observability Platform (Runtime)
 
-This directory contains the platform-team-owned surface for the multi-cluster OpenTelemetry platform on Amazon EKS.
+This directory contains the platform-team-owned active Kubernetes runtime manifests for the OpenTelemetry observability platform on Amazon EKS.
 
 ---
 
@@ -8,23 +8,17 @@ This directory contains the platform-team-owned surface for the multi-cluster Op
 
 ```text
 observability-platform/
-├── bootstrap-k8s-manifests/           # Active Kubernetes manifests (applied by make k8s-deploy-gateway / deploy-all)
-│   ├── otel-collector-gateway.yaml    # Two-Tier Gateway (Stateless Router + Stateful Processor with Tail Sampling)
-│   ├── svc-nlb-otel-gateway.yaml      # Internal Ingestion NLB (Instance target type, cross-VPC peered)
-│   ├── grafana-ingress.yaml           # Internet-facing ALB Ingress for Grafana
-│   ├── grafana-dashboards-configmap.yaml # Baseline Golden Signal & Meta-Monitoring Grafana Dashboards
-│   ├── mimir-ruler-rules-configmap.yaml  # Google SRE multi-window SLO burn-rate alerts (mounted to Mimir Ruler)
-│   ├── goalert.yaml                   # Self-hosted GoAlert on-call pager & escalation policy
-│   ├── alert-sink.yaml                # Webhook receiver for slow-burn ticket-severity alerts
-│   └── optional-extensions/           # Optional Enterprise Extensions (Kafka buffer & OpenSearch ISM bootstrap)
-│       ├── kafka-stub.yaml            # In-cluster Kafka buffer stub
-│       ├── opensearch-index-bootstrap-job.yaml # OpenSearch index template + 7-day ISM policy
-│       └── README.md                  # Instructions for enabling the Kafka -> Logstash -> OpenSearch path
-└── platform-as-a-product/             # Platform Product: Contracts, Guides, Policies & GitOps Templates
-    ├── onboarding/                    # Paved Road: Service contract, 4 levels of instrumentation & SDK templates
-    ├── gateway-policies/              # Platform Policies: Multitenant routing & sampling budgets
-    ├── dashboards-and-alerts/         # Visuals & SRE: Raw dashboard JSONs, Helm charts, and META_MONITORING.md
-    └── argocd/                        # GitOps: Argo CD App-of-Apps reference template
+├── otel-collector-gateway.yaml       # Two-Tier Gateway (Stateless Router + Stateful Processor with Tail Sampling)
+├── svc-nlb-otel-gateway.yaml         # Internal Ingestion NLB (Instance target type, cross-VPC peered)
+├── grafana-ingress.yaml              # Internet-facing ALB Ingress for Grafana
+├── grafana-dashboards-configmap.yaml # Baseline Golden Signal & Meta-Monitoring Grafana Dashboards
+├── mimir-ruler-rules-configmap.yaml  # Google SRE multi-window SLO burn-rate alerts (mounted to Mimir Ruler)
+├── goalert.yaml                      # Self-hosted GoAlert on-call pager & escalation policy
+├── alert-sink.yaml                   # Webhook receiver for slow-burn ticket-severity alerts
+└── optional-extensions/              # Optional Enterprise Extensions (Kafka buffer & OpenSearch ISM bootstrap)
+    ├── kafka-stub.yaml               # In-cluster Kafka buffer stub
+    ├── opensearch-index-bootstrap-job.yaml # OpenSearch index template + 7-day ISM policy
+    └── README.md                     # Instructions for enabling the Kafka -> Logstash -> OpenSearch path
 ```
 
 ---
@@ -47,6 +41,5 @@ observability-platform/
 
 ## Ownership Model
 
-- **App Teams Own:** Instrumentation quality, service metadata (`service.name`, `team`, `deployment.environment`), SLO targets, and alerting thresholds.
-- **Platform Teams Own:** Collector baselines, gateway routing policy, tail sampling defaults, backend integrations, and GitOps paved roads.
-- **FinOps & Security Teams Rely On:** Centralized controls for S3 retention, compression, rate-limiting, and tenant isolation.
+- **Platform Teams Own:** Central collector gateway baselines, routing policies, sampling defaults, backend integrations, and operational alerts.
+- **For Platform Product & Onboarding Contracts:** See [`../platform-as-a-product/`](../platform-as-a-product/).

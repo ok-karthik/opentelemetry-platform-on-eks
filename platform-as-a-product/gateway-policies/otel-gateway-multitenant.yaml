@@ -1,0 +1,129 @@
+# ==============================================================================
+# OpenTelemetry Gateway Config: Multi-Tenant Routing via Connectors
+# ==============================================================================
+# This configuration demonstrates how to securely isolate telemetry data across
+# different organizational units using OTel Routing Connectors and processors.
+# It routes Traces, Metrics, and Logs based on the `tenant.id` resource attribute.
+# ==============================================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+processors:
+  # Transform processor ensures the `tenant.id` exists.
+  # If a service sets `service.namespace` but forgot `tenant.id`, we fallback to it.
+  # If neither is set, we assign it to 'unallocated'.
+  transform/tenant:
+    error_mode: ignore
+    trace_statements:
+      - context: resource
+        statements:
+          - set(attributes["tenant.id"], attributes["service.namespace"]) where attributes["tenant.id"] == nil and attributes["service.namespace"] != nil
+          - set(attributes["tenant.id"], "unallocated") where attributes["tenant.id"] == nil
+    metric_statements:
+      - context: resource
+        statements:
+          - set(attributes["tenant.id"], attributes["service.namespace"]) where attributes["tenant.id"] == nil and attributes["service.namespace"] != nil
+          - set(attributes["tenant.id"], "unallocated") where attributes["tenant.id"] == nil
+    log_statements:
+      - context: resource
+        statements:
+          - set(attributes["tenant.id"], attributes["service.namespace"]) where attributes["tenant.id"] == nil and attributes["service.namespace"] != nil
+          - set(attributes["tenant.id"], "unallocated") where attributes["tenant.id"] == nil
+
+connectors:
+  # The routing connector evaluates the 'tenant.id' resource attribute
+  # and forwards to the matching pipeline.
+  routing/traces:
+    default_exporter: otlp/default
+    error_mode: ignore
+    match_once: true
+    table:
+      - statement: route() where resource.attributes["tenant.id"] == "playstation-store"
+        exporters: [otlp/store]
+      - statement: route() where resource.attributes["tenant.id"] == "matchmaking"
+        exporters: [otlp/matchmaking]
+
+  routing/metrics:
+    default_exporter: otlp/default
+    error_mode: ignore
+    match_once: true
+    table:
+      - statement: route() where resource.attributes["tenant.id"] == "playstation-store"
+        exporters: [otlp/store]
+      - statement: route() where resource.attributes["tenant.id"] == "matchmaking"
+        exporters: [otlp/matchmaking]
+
+  routing/logs:
+    default_exporter: otlp/default
+    error_mode: ignore
+    match_once: true
+    table:
+      - statement: route() where resource.attributes["tenant.id"] == "playstation-store"
+        exporters: [otlp/store]
+      - statement: route() where resource.attributes["tenant.id"] == "matchmaking"
+        exporters: [otlp/matchmaking]
+
+exporters:
+  # Default fallback exporter (e.g., generic cluster-wide backend)
+  otlp/default:
+    endpoint: default-lgtm.monitoring.svc.cluster.local:4317
+    tls:
+      insecure: true
+
+  # Exporter dedicated to the PlayStation Store team's LGTM backend
+  otlp/store:
+    endpoint: store-lgtm.store-monitoring.svc.cluster.local:4317
+    headers:
+      X-Scope-OrgID: "playstation-store"
+    tls:
+      insecure: true
+
+  # Exporter dedicated to the Matchmaking team's LGTM backend
+  otlp/matchmaking:
+    endpoint: matchmaking-lgtm.matchmaking-monitoring.svc.cluster.local:4317
+    headers:
+      X-Scope-OrgID: "matchmaking"
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    # 1. Incoming pipelines - parse tenants and feed into routing connector
+    traces/ingest:
+      receivers: [otlp]
+      processors: [transform/tenant]
+      exporters: [routing/traces]
+    metrics/ingest:
+      receivers: [otlp]
+      processors: [transform/tenant]
+      exporters: [routing/metrics]
+    logs/ingest:
+      receivers: [otlp]
+      processors: [transform/tenant]
+      exporters: [routing/logs]
+
+    # 2. PlayStation Store routed pipelines
+    traces/store:
+      receivers: [routing/traces]
+      exporters: [otlp/store]
+    metrics/store:
+      receivers: [routing/metrics]
+      exporters: [otlp/store]
+    logs/store:
+      receivers: [routing/logs]
+      exporters: [otlp/store]
+
+    # 3. Matchmaking routed pipelines
+    traces/matchmaking:
+      receivers: [routing/traces]
+      exporters: [otlp/matchmaking]
+    metrics/matchmaking:
+      receivers: [routing/metrics]
+      exporters: [otlp/matchmaking]
+    logs/matchmaking:
+      receivers: [routing/logs]
+      exporters: [otlp/matchmaking]

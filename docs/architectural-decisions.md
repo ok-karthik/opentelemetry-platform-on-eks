@@ -287,5 +287,9 @@ graph TD
     ProcessGateway --> Backends["Observability Backends"]
 ```
 
+---
 
+### Capacity Planning & Node Density
+For complete mathematical sizing matrices, pod density numbers, and memory tuning from 2K to 200K QPS, see the dedicated reference:
+👉 **[Scale & Capacity Planning Guide](scale-and-capacity-planning.md)**
 

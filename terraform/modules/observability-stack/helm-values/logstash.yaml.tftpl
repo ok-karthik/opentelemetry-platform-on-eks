@@ -1,0 +1,125 @@
+# ==============================================================================
+# Logstash — Kafka -> OpenSearch, the "L" the Kafka buffer was mocked for.
+#
+# Consumes the `otel-logs-buffer` topic the gateway's `kafka/logs` exporter
+# writes to (see observability-platform/k8s-manifests/otel-collector-gateway.yaml
+# — that exporter now uses `encoding: otlp_json`, not the collector's default
+# `otlp_proto`, specifically so this pipeline can decode it with Logstash's
+# stock `json` codec instead of needing a custom OTLP protobuf decoder).
+#
+# Output uses the bundled `elasticsearch` output plugin, not the dedicated
+# `logstash-output-opensearch` plugin. That's deliberate, not an oversight:
+# the dedicated plugin needs installing at image-build time (this repo has no
+# custom-image build step for infra components, only for the two app images),
+# and the bundled plugin's plain HTTP bulk API calls work against OpenSearch
+# with its security plugin disabled — no auth headers, no product-check
+# rejection to work around. A real deployment with OpenSearch's security
+# plugin enabled and AWS SigV4 auth would need the dedicated plugin instead.
+# ==============================================================================
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+persistence:
+  enabled: false
+
+logstashConfig:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    xpack.monitoring.enabled: false
+  pipelines.yml: |
+    - pipeline.id: otel-logs
+      path.config: "/usr/share/logstash/pipeline/otel-logs.conf"
+
+logstashPipeline:
+  otel-logs.conf: |
+    input {
+      kafka {
+        bootstrap_servers => "kafka.monitoring.svc.cluster.local:9092"
+        topics => ["otel-logs-buffer"]
+        codec => json
+        group_id => "logstash-otel-logs"
+      }
+    }
+
+    filter {
+      # One Kafka message = one ExportLogsServiceRequest batch. Split it down
+      # to one Logstash event per individual log record before touching
+      # anything else — every filter after this assumes a single logRecord.
+      split { field => "[resourceLogs]" }
+      split { field => "[resourceLogs][scopeLogs]" }
+      split { field => "[resourceLogs][scopeLogs][logRecords]" }
+
+      ruby {
+        # OTLP's AnyValue is a typed union ({"stringValue": ...} or
+        # {"intValue": ...} etc.) and attributes arrive as a [{key, value}]
+        # array rather than a flat map — neither shape is directly usable in
+        # OpenSearch queries/aggregations, which is the whole reason this
+        # pipeline exists instead of just pointing Filebeat at the raw JSON.
+        # This flattens both the resource-level and log-record-level
+        # attributes into plain top-level fields.
+        #
+        # CAVEAT: traceId/spanId are treated as already-hex here, matching
+        # the OTel Collector's own OTLP-JSON marshaler convention (hex, not
+        # base64 per strict protobuf-JSON). Verify against one real message
+        # (`bin/logstash -e ... --config.test_and_exit` or a manual consumer
+        # against the `otel-logs-buffer` topic) before trusting this in
+        # production — this was written against the documented convention,
+        # not a live sample.
+        code => '
+          def flatten_attrs(attrs)
+            out = {}
+            (attrs || []).each do |a|
+              key = a["key"]
+              val = a["value"] || {}
+              out[key] = val["stringValue"] || val["intValue"] || val["boolValue"] || val["doubleValue"]
+            end
+            out
+          end
+
+          rl = event.get("[resourceLogs]") || {}
+          resource_attrs = flatten_attrs(rl.dig("resource", "attributes"))
+          log_record = rl.dig("scopeLogs", "logRecords") || {}
+          log_attrs = flatten_attrs(log_record["attributes"])
+
+          event.set("service_name", resource_attrs["service.name"])
+          event.set("team", resource_attrs["team"])
+          event.set("k8s_namespace_name", resource_attrs["k8s.namespace.name"])
+          event.set("k8s_pod_name", resource_attrs["k8s.pod.name"])
+          event.set("severity", log_record["severityText"])
+          body = log_record["body"] || {}
+          event.set("message", body["stringValue"])
+          event.set("trace_id", log_record["traceId"])
+          event.set("span_id", log_record["spanId"])
+          event.set("log_file_path", log_attrs["log.file.path"])
+
+          time_unix_nano = log_record["timeUnixNano"].to_i
+          if time_unix_nano > 0
+            event.set("@timestamp", LogStash::Timestamp.at(time_unix_nano / 1_000_000_000, (time_unix_nano % 1_000_000_000) / 1000.0))
+          end
+        '
+      }
+
+      mutate {
+        remove_field => ["resourceLogs", "@version"]
+      }
+    }
+
+    output {
+      elasticsearch {
+        hosts => ["http://opensearch-cluster-master:9200"]
+        # Written to the ISM-managed rollover alias, not a date-suffixed index
+        # name — see opensearch-index-bootstrap-job.yaml for the alias, the
+        # index template it's attached to, and the ISM policy that rolls it
+        # over and deletes old backing indices. Logstash never creates or
+        # names a physical index itself.
+        index => "otel-logs-write"
+        manage_template => false
+      }
+    }

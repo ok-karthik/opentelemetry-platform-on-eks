@@ -1,0 +1,123 @@
+# ==============================================================================
+# Optional: OpenSearch Index Bootstrap Job for Enterprise Log Analytics
+# ==============================================================================
+# DEFAULT STATUS:
+# - Disabled by default. The primary lightweight log backend in this repo is Grafana Loki.
+# - OpenSearch, OpenSearch Dashboards, and Logstash are controlled via the Terraform flag:
+#   `deploy_opensearch_stack = false` in:
+#     1) terraform/main.tf
+#     2) terraform/variables.tf (set deploy_opensearch_stack = true)
+#     3) terraform/modules/observability-stack/helm-charts.tf
+#
+# PURPOSE & ARCHITECTURAL USE CASE:
+# - What Loki is for: Lightweight, label-indexed log aggregation stored directly in AWS S3,
+#   optimized for sub-second trace-to-log correlation in Grafana at minimal cost (~$5/mo).
+# - What OpenSearch is for: Enterprise full-text indexing, fuzzy string searching across
+#   unstructured payloads, high-cardinality aggregations, and SIEM security log analytics.
+#
+# WHAT THIS JOB DOES:
+# 1. ISM Policy (Index State Management): Creates `otel-logs-policy` to automatically
+#    roll over indices by age (1 day) or size (5 GB) and purge indices after 7 days
+#    (matching the retention of Loki/Tempo/Mimir).
+# 2. Index Template: Pre-defines typed mappings (`@timestamp`, `service_name`, `severity`,
+#    `trace_id`, `span_id`, etc.) to prevent Elasticsearch mapping-explosion conflicts.
+# 3. Write Alias: Initializes `otel-logs-000001` backing index with alias `otel-logs-write`.
+#
+# HOW TO DEPLOY:
+# 1. Apply Terraform with `-var="deploy_opensearch_stack=true"`.
+# 2. Apply the Kafka stub: `kubectl apply -f observability-platform/k8s-manifests/optional-extensions/kafka-stub.yaml`
+# 3. Apply this job: `kubectl apply -f observability-platform/k8s-manifests/optional-extensions/opensearch-index-bootstrap-job.yaml`
+# ==============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: opensearch-index-bootstrap
+  namespace: monitoring
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: curlimages/curl:8.11.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              OS="http://opensearch-cluster-master.monitoring.svc.cluster.local:9200"
+
+              echo "Waiting for OpenSearch..."
+              until curl -sf "$OS/_cluster/health"; do sleep 5; done
+
+              echo "Creating ISM policy: otel-logs-policy"
+              curl -sf -X PUT "$OS/_plugins/_ism/policies/otel-logs-policy" \
+                -H 'Content-Type: application/json' -d '{
+                  "policy": {
+                    "description": "Rollover otel-logs by size/age, delete after 7 days — matches Loki/Tempo/Mimir retention.",
+                    "default_state": "hot",
+                    "states": [
+                      {
+                        "name": "hot",
+                        "actions": [
+                          {
+                            "rollover": {
+                              "min_size": "5gb",
+                              "min_index_age": "1d"
+                            }
+                          }
+                        ],
+                        "transitions": [
+                          { "state_name": "delete", "conditions": { "min_index_age": "7d" } }
+                        ]
+                      },
+                      {
+                        "name": "delete",
+                        "actions": [ { "delete": {} } ],
+                        "transitions": []
+                      }
+                    ],
+                    "ism_template": {
+                      "index_patterns": ["otel-logs-*"],
+                      "priority": 100
+                    }
+                  }
+                }' || echo "policy already exists, continuing"
+
+              echo "Creating index template: otel-logs-template"
+              curl -sf -X PUT "$OS/_index_template/otel-logs-template" \
+                -H 'Content-Type: application/json' -d '{
+                  "index_patterns": ["otel-logs-*"],
+                  "template": {
+                    "settings": {
+                      "number_of_shards": 1,
+                      "number_of_replicas": 0,
+                      "plugins.index_state_management.rollover_alias": "otel-logs-write"
+                    },
+                    "mappings": {
+                      "dynamic": false,
+                      "properties": {
+                        "@timestamp":         { "type": "date" },
+                        "service_name":       { "type": "keyword" },
+                        "team":               { "type": "keyword" },
+                        "severity":           { "type": "keyword" },
+                        "message":            { "type": "text" },
+                        "trace_id":           { "type": "keyword" },
+                        "span_id":            { "type": "keyword" },
+                        "k8s_namespace_name": { "type": "keyword" },
+                        "k8s_pod_name":       { "type": "keyword" },
+                        "log_file_path":      { "type": "keyword" }
+                      }
+                    }
+                  },
+                  "priority": 100
+                }'
+
+              echo "Creating initial backing index + write alias: otel-logs-000001 -> otel-logs-write"
+              curl -sf -X PUT "$OS/otel-logs-000001" \
+                -H 'Content-Type: application/json' -d '{
+                  "aliases": { "otel-logs-write": { "is_write_index": true } }
+                }' || echo "initial index already exists, continuing"
+
+              echo "Done."

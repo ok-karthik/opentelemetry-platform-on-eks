@@ -1,0 +1,31 @@
+{{- if .Values.dashboards.enabled }}
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: {{ .Values.serviceName }}-dashboard
+  labels:
+    app: {{ .Values.serviceName }}
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "grafana"
+  json: |
+    {
+      "title": "{{ .Values.serviceName }} Golden Signals",
+      "tags": [
+        "{{ $.Values.ownerTeam }}",
+        "{{ .Values.dashboards.template }}"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 16,
+      "version": 0,
+      "refresh": "5s",
+      "panels": [
+        {
+          "type": "text",
+          "title": "Dashboard Automatically Provisioned via GitOps",
+          "content": "This is a placeholder for the actual **{{ .Values.dashboards.template }}** dashboard.\n\nIn a real-world scenario, you would mount the standard JSON using Helm's `{{ `{{ .Files.Get \"dashboards/go-service.json\" }}` }}` function and parameterize it."
+        }
+      ]
+    }
+{{- end }}

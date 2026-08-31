@@ -1,0 +1,41 @@
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: python-instrumentation
+  namespace: default
+spec:
+  # ==================== Exporter Configuration ====================
+  # Tells the injected OTel SDK where to send telemetry.
+  #
+  # The OTel Operator names the Service it creates for a collector
+  # "<collector-name>-collector", so the DaemonSet declared as
+  # `otel-collector-agent` is reachable at otel-collector-agent-collector —
+  # the un-suffixed name resolves to nothing.
+  #
+  # This is the fallback for pods that do not set OTEL_EXPORTER_OTLP_ENDPOINT
+  # themselves. Workloads should prefer the node-local Downward API form used in
+  # python-product-info-service.yaml, which keeps k8sattributes enrichment
+  # working; this Service target round-robins across nodes.
+  exporter:
+    endpoint: http://otel-collector-agent-collector.monitoring.svc.cluster.local:4317
+
+  # ==================== Propagator Configuration ====================
+  # Configures how trace context is injected/extracted across HTTP headers.
+  propagators:
+    - tracecontext  # W3C traceparent standard
+    - baggage       # W3C baggage standard
+    - b3            # Legacy Zipkin standard (for compatibility with older services)
+
+  # ==================== Sampler Configuration ====================
+  sampler:
+    type: parentbased_always_on
+
+  # ==================== Language Configuration ====================
+  python:
+    # The operator mounts this image and uses its files to auto-instrument the pod.
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:latest
+    env:
+      - name: OTEL_LOGS_EXPORTER
+        value: "otlp"
+      - name: OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED
+        value: "true"

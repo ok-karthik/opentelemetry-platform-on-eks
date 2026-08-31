@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: product-info-observability
+  namespace: argocd
+spec:
+  project: platform
+  sources:
+    - repoURL: https://github.com/ok-karthik/opentelemetry-platform-on-eks.git
+      targetRevision: main
+      path: observability-platform/platform-as-a-product/dashboards-and-alerts/helm-chart
+      helm:
+        valueFiles:
+          - $values/observability/product-info-values.yaml
+    - repoURL: https://github.com/ok-karthik/opentelemetry-platform-on-eks.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

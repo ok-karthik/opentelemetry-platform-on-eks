@@ -1,0 +1,4 @@
+karpenterRoleName: ""
+clusterName: ""
+cpuLimit: 1000
+memoryLimit: 1000Gi

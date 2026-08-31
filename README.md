@@ -77,7 +77,7 @@ flowchart LR
     RuleEngine -->|"Slow Burn (Warning 3x / 1x)"| AlertSink["Ticket Webhook Sink\n(Slack / Jira)"]
 ```
 
-* **Out-of-Band Meta-Monitoring:** Collector self-telemetry (`:8888`/`:8889`) monitors data drops and backpressure, paired with an external AWS CloudWatch + SNS watchdog for total cluster failure. 👉 **[Read Meta-Monitoring Guide](observability-platform/dashboards-and-alerts/META_MONITORING.md)**.
+* **Out-of-Band Meta-Monitoring:** Collector self-telemetry (`:8888`/`:8889`) monitors data drops and backpressure, paired with an external AWS CloudWatch + SNS watchdog for total cluster failure. 👉 **[Read Meta-Monitoring Guide](platform-as-a-product/dashboards-and-alerts/META_MONITORING.md)**.
 * **Multi-Tenancy Access Control & Quotas:** Physical S3 prefix partitioning (`X-Scope-OrgID`), Grafana Organizations mapped to corporate SSO, and FinOps stream limits. 👉 **[Read Multi-Tenancy Architecture](docs/multi-tenancy.md)**.
 
 ---
@@ -86,11 +86,13 @@ flowchart LR
 
 | Path | Contents | Status |
 |---|---|---|
-| [`workloads/`](workloads/) | Demo microservices (Go/Python), manifests, and OTel DaemonSet agent | **Deployed** |
-| [`observability-platform/bootstrap-k8s-manifests/`](observability-platform/bootstrap-k8s-manifests/) | Central OTel Gateway, NLB, Grafana dashboards, GoAlert, and alert sink | **Deployed** |
-| [`observability-platform/platform-as-a-product/`](observability-platform/platform-as-a-product/) | Service contracts, 4 levels of instrumentation, sampling policies & GitOps | *Product Paved Roads* |
-| [`terraform/`](terraform/) | Single-cluster and multi-cluster EKS, VPC, AMP, S3, and IAM Pod Identity | **Deployed** |
-| [`terraform/.../helm-values/`](terraform/observability-cluster/helm-values/) | Loki, Tempo, and Grafana Helm values with inline architectural rationale | **Deployed** |
+| [`workloads/`](workloads/) | App-team-owned microservices (Go/Python SDK & manifests) and OTel DaemonSet agent | **Deployed** |
+| [`observability-platform/`](observability-platform/) | Central OTel Gateway, Ingestion NLB, Grafana ALB, GoAlert, and alert sink | **Deployed** |
+| [`platform-as-a-product/`](platform-as-a-product/) | Service onboarding contracts, 4 levels of instrumentation, sampling policies & GitOps | *Product Paved Roads* |
+| [`terraform/`](terraform/) | Root orchestrator for 1-click full deployment or standalone EKS platform | **Deployed** |
+| [`terraform/modules/eks-base/`](terraform/modules/eks-base/) | Day-1 Base Infrastructure (VPC `10.1.0.0/16`, EKS 1.35, Nodes, Karpenter, cert-manager, gp3) | **Deployed** |
+| [`terraform/modules/observability-stack/`](terraform/modules/observability-stack/) | Day-2 "Bring Your Own Cluster" (BYOC) Observability Platform (AMP, S3, Loki, Tempo, Mimir, Grafana) | **Deployed** |
+| [`terraform/modules/observability-stack/helm-values/`](terraform/modules/observability-stack/helm-values/) | Loki, Tempo, and Grafana Helm values with inline architectural rationale | **Deployed** |
 | [`docs/`](docs/) | Decisions, multi-tenancy, deployed components inventory, and roadmap | *Documentation* |
 | [`.agents/AGENTS.md`](.agents/AGENTS.md) | Agent operational workflows, mental model, and failure traps | *Documentation* |
 
@@ -100,58 +102,61 @@ flowchart LR
 ```text
 docs/                               # Architectural decisions & traps
   architectural-decisions.md        # 7 core decisions & scale patterns
+  scale-and-capacity-planning.md    # 2K to 200K QPS capacity matrix & tuning
   deployed-components.md            # Full Helm release & version inventory
   multi-tenancy.md                  # S3 isolation, Grafana Orgs, alerts
   future-roadmap.md                 # AIOps, GenAI APM, IDP, & GitOps
+
 workloads/                          # App-team-owned microservices
-  apps-src/
-    golang-app/                     # Go SDK programmatic bootstrap
-    python-app/                     # Python OTel auto-instrumentation
-  k8s-manifests/
-    otel-collector-daemonset.yaml   # DEPLOYED  Node agent + OBI eBPF
-    golang-app/                     # DEPLOYED  Deployment, Svc, ALB
-    python-app/                     # DEPLOYED  Deployment, Svc, CR
+  golang-app/                       # DEPLOYED  Go SDK source code, Dockerfile, Svc, Ingress
+  python-app/                       # DEPLOYED  Python app source code, Dockerfile, Svc, CR
+  otel-collector-daemonset.yaml     # DEPLOYED  Node agent + OBI eBPF (HostNetwork Downward API)
 
-observability-platform/             # Platform-team-owned product
-  bootstrap-k8s-manifests/          # DEPLOYED  Core operational manifests
-    otel-collector-gateway.yaml     #   Gateway CR: filters, sampling
-    svc-nlb-otel-gateway.yaml       #   Internal NLB ingest router
-    grafana-ingress.yaml            #   Internet-facing Grafana ALB
-    grafana-dashboards-configmap.yaml # Baseline Grafana dashboards
-    mimir-ruler-rules-configmap.yaml #  SLO burn-rate rule groups
-    alert-sink.yaml                 #   Ticket-severity echo receiver
-    goalert.yaml                    #   On-call pager + Postgres
-    optional-extensions/            #   TEMPLATE  Optional enterprise tier
-      kafka-stub.yaml               #     In-cluster Kafka buffer stub
-      opensearch-index-bootstrap-job.yaml # OpenSearch ISM policy
-  platform-as-a-product/            # TEMPLATE  Product paved roads & contracts
-    onboarding/                     #   Identity & SLO contract, 4 tiers
-      service-onboarding-contract.md
-      instrumentation-tiers-and-ebpf.md
-      instrumentation-manifests/    #   Multi-runtime CRs & Go SDK
-    gateway-policies/               #   Policy templates
-      otel-gateway-multitenant.yaml #   Multi-tenant routing connector
-      otel-gateway-tail-sampling.yaml # Tail sampling cost budgeting
-    dashboards-and-alerts/          #   SRE math & rule generator
-      golden-signals/               #   Raw JSON definitions
-      helm-chart/                   #   PrometheusRule Helm chart
-      META_MONITORING.md            #   Meta-monitoring architecture
-    argocd/                         #   GitOps App-of-Apps template
-      root-application.yaml         #   Root Application CR
-      appproject-platform.yaml      #   Platform AppProject
-      apps/                         #   Child application manifests
+observability-platform/             # Platform runtime manifests
+  otel-collector-gateway.yaml       # DEPLOYED  Two-tier gateway (Router + Processor)
+  svc-nlb-otel-gateway.yaml         # DEPLOYED  Internal Ingestion NLB
+  grafana-ingress.yaml              # DEPLOYED  Internet-facing Grafana ALB
+  grafana-dashboards-configmap.yaml # DEPLOYED  Baseline Grafana dashboards
+  mimir-ruler-rules-configmap.yaml  # DEPLOYED  SLO burn-rate rule groups
+  alert-sink.yaml                   # DEPLOYED  Ticket-severity echo receiver
+  goalert.yaml                      # DEPLOYED  On-call pager + Postgres
+  optional-extensions/              # TEMPLATE  Optional enterprise tier
+    kafka-stub.yaml                 #   In-cluster Kafka buffer stub
+    opensearch-index-bootstrap-job.yaml # OpenSearch ISM policy
 
-terraform/                          # Cloud infrastructure
-  main.tf                           # Multi-cluster entrypoint
-  single-cluster/                   # DEPLOYED  Fast single cluster
-    main.tf
-  apps-workload-cluster-1/          # Workload VPC, EKS, and LB
-  observability-cluster/            # Observability VPC, EKS, AMP, S3
-    amp.tf                          # Amazon Managed Prometheus
-    network.tf                      # VPC, Subnets, S3 VPC Endpoint
-    helm-values/                    # Loki/Tempo/Grafana Helm values
-    cluster-storage/                # gp3 StorageClass baseline
-    karpenter-provisioner/          # Karpenter NodePool & NodeClass
+platform-as-a-product/              # Platform product paved roads & governance
+  onboarding/                       #   Identity & SLO contract, 4 tiers
+    service-onboarding-contract.md
+    instrumentation-tiers-and-ebpf.md
+    instrumentation-manifests/      #   Multi-runtime CRs & Go SDK template
+  gateway-policies/                 #   Policy templates
+    otel-gateway-multitenant.yaml   #   Multi-tenant routing connector
+    otel-gateway-tail-sampling.yaml #   Tail sampling cost budgeting
+  dashboards-and-alerts/            #   SRE math & rule generator
+    golden-signals/                 #   Raw JSON definitions
+    helm-chart/                     #   PrometheusRule Helm chart
+    META_MONITORING.md              #   Meta-monitoring architecture
+  argocd/                           #   GitOps App-of-Apps template
+    root-application.yaml           #   Root Application CR
+    appproject-platform.yaml        #   Platform AppProject
+    apps/                           #   Child application manifests
+
+terraform/                          # Cloud infrastructure & Platform modules
+  main.tf                           # Root orchestrator (1-Click demo entrypoint)
+  variables.tf / outputs.tf
+  modules/
+    eks-base/                       # Day-1 Base Infrastructure
+      network.tf                    #   VPC (10.1.0.0/16), Subnets, S3 VPC Endpoint
+      eks.tf                        #   EKS 1.35, Managed Node Group
+      addons.tf                     #   cert-manager, aws-lb-controller, karpenter
+      cluster-storage/              #   gp3 StorageClass baseline
+      karpenter-provisioner/        #   Karpenter NodePool & EC2NodeClass
+    observability-stack/            # Day-2 "Bring Your Own Cluster" (BYOC) Module
+      amp.tf                        #   Amazon Managed Prometheus & Pod Identity
+      storage.tf                    #   S3 buckets (Loki/Tempo/Mimir) & IAM
+      meta-monitoring.tf            #   External Dead-Man's SNS pager
+      helm-charts.tf                #   Loki, Tempo, Mimir, Grafana, OpenSearch
+      helm-values/                  #   Loki/Tempo/Grafana Helm values
 ```
 
 </details>

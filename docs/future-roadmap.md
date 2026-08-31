@@ -44,7 +44,7 @@ Commercial platforms charge heavy premiums for AI correlation (Dynatrace Davis A
 > - **Metrics:** Memory consumption exceeded the `512Mi` limit following a 4x spike in `/cart/checkout` requests.
 > - **Logs:** Last error in Loki: `java.lang.OutOfMemoryError: Java heap space`.
 > - **Traces:** 14 traces in Tempo show 504 Gateway Timeouts from `payment-service`.
-> - **Recommended Remediation:** Increase container memory limit to `1Gi` in `workloads/k8s-manifests/checkout-service.yaml` and inspect payment service connection pooling.
+> - **Recommended Remediation:** Increase container memory limit to `1Gi` in `workloads/golang-app/golang-product-service.yaml` and inspect payment service connection pooling.
 
 ---
 

@@ -1,0 +1,63 @@
+# ==============================================================================
+# Tempo — monolithic (single binary)
+#
+# IMPORTANT: every Tempo setting in this chart lives under the top-level
+# `tempo:` key. There is no top-level `storage:` or `traces:` key. Helm silently
+# ignores unknown values, so setting `storage.trace.backend=s3` (no `tempo.`
+# prefix) does NOT fail — it just leaves Tempo on its default `backend: local`,
+# writing traces to the pod's ephemeral disk while the S3 bucket stays empty.
+# Verify any change here with:
+#
+#   helm template tempo grafana/tempo --version 1.24.4 -f tempo.yaml \
+#     | yq '.data."tempo.yaml"'
+#
+# NOTE: grafana/tempo is marked deprecated upstream. It still installs and is by
+# far the lightest way to run Tempo (1 pod). Migrate to grafana/tempo-distributed
+# when this demo needs horizontal scale — see .agents/AGENTS.md.
+#
+# OTLP ingest endpoint: tempo.monitoring.svc.cluster.local:4317
+# Query API endpoint:   http://tempo.monitoring.svc.cluster.local:3200
+# ==============================================================================
+
+replicas: 1
+
+tempo:
+  storage:
+    trace:
+      backend: s3
+      s3:
+        bucket: ${tempo_bucket}
+        endpoint: s3.${aws_region}.amazonaws.com
+        region: ${aws_region}
+      wal:
+        path: /var/tempo/wal
+
+  # Only OTLP is used in this platform. The chart default also opens Jaeger,
+  # Zipkin and OpenCensus listeners, which are dead ports here.
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+
+  # The metrics generator needs a Prometheus remote-write target and roughly
+  # doubles Tempo's memory footprint. Span metrics are produced by the OTel
+  # gateway instead.
+  metricsGenerator:
+    enabled: false
+
+  retention: 168h
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClassName: gp3

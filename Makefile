@@ -7,13 +7,13 @@ SINGLE_CLUSTER ?= true
 APPS_CLUSTER ?= apps-workload-cluster-1
 OTEL_CLUSTER ?= observability-cluster
 AWS_REGION ?= us-east-1
-APPS_MANIFEST_DIR = workloads/k8s-manifests
-OBS_MANIFEST_DIR = observability-platform/bootstrap-k8s-manifests
+APPS_MANIFEST_DIR = workloads
+OBS_MANIFEST_DIR = observability-platform
 AWS_ACCOUNT_ID ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
 DOCKERHUB_USER_NAME ?=
 
-TF_DIR := $(if $(filter true,$(SINGLE_CLUSTER)),terraform/single-cluster,terraform)
-TARGET_APPS_CLUSTER := $(if $(filter true,$(SINGLE_CLUSTER)),$(OTEL_CLUSTER),$(APPS_CLUSTER))
+TF_DIR := terraform
+TARGET_APPS_CLUSTER := $(OTEL_CLUSTER)
 
 .PHONY: help k8s-all k8s-create k8s-create-infra k8s-create-helm k8s-destroy k8s-context k8s-deploy-all k8s-deploy-otel k8s-deploy-apps k8s-undeploy-all k8s-dashboards grafana-password k8s-status helm-lint ecr-build-push docker-build-push
 
@@ -56,44 +56,46 @@ help: ## Show this help message
 # "Helm provider talks to a not-yet-healthy API server" race condition.
 #
 INFRA_TARGETS_SHARED := \
-  -target='module.observability_cluster.module.eks' \
-  -target='module.observability_cluster.module.karpenter' \
-  -target='module.observability_cluster.aws_vpc.main' \
-  -target='module.observability_cluster.aws_subnet.public' \
-  -target='module.observability_cluster.aws_subnet.private' \
-  -target='module.observability_cluster.aws_internet_gateway.gw' \
-  -target='module.observability_cluster.aws_eip.nat' \
-  -target='module.observability_cluster.aws_nat_gateway.nat' \
-  -target='module.observability_cluster.aws_route_table.public_rt_otel' \
-  -target='module.observability_cluster.aws_route_table.private_rt_otel' \
-  -target='module.observability_cluster.aws_route_table_association.public' \
-  -target='module.observability_cluster.aws_route_table_association.private' \
-  -target='module.observability_cluster.aws_route.private_nat_otel' \
-  -target='module.observability_cluster.aws_s3_bucket.loki_data' \
-  -target='module.observability_cluster.aws_s3_bucket.tempo_data' \
-  -target='module.observability_cluster.aws_s3_bucket.mimir_blocks' \
-  -target='module.observability_cluster.aws_s3_bucket.mimir_ruler' \
-  -target='module.observability_cluster.aws_s3_bucket.mimir_alertmanager' \
-  -target='module.observability_cluster.aws_iam_policy.grafana_stack_s3' \
-  -target='module.observability_cluster.aws_iam_role.grafana_stack' \
-  -target='module.observability_cluster.aws_iam_role_policy_attachment.grafana_stack_s3_attach' \
-  -target='module.observability_cluster.aws_eks_pod_identity_association.loki' \
-  -target='module.observability_cluster.aws_eks_pod_identity_association.tempo' \
-  -target='module.observability_cluster.aws_eks_pod_identity_association.mimir' \
-  -target='module.observability_cluster.aws_iam_policy.aws_lb_controller' \
-  -target='module.observability_cluster.aws_iam_role.aws_lb_controller' \
-  -target='module.observability_cluster.aws_iam_role_policy_attachment.aws_lb_controller' \
-  -target='module.observability_cluster.aws_eks_pod_identity_association.aws_lb_controller'
+  -target='module.eks_base.module.eks' \
+  -target='module.eks_base.module.karpenter' \
+  -target='module.eks_base.aws_vpc.main' \
+  -target='module.eks_base.aws_subnet.public' \
+  -target='module.eks_base.aws_subnet.private' \
+  -target='module.eks_base.aws_internet_gateway.gw' \
+  -target='module.eks_base.aws_eip.nat' \
+  -target='module.eks_base.aws_nat_gateway.nat' \
+  -target='module.eks_base.aws_route_table.public_rt_otel' \
+  -target='module.eks_base.aws_route_table.private_rt_otel' \
+  -target='module.eks_base.aws_route_table_association.public' \
+  -target='module.eks_base.aws_route_table_association.private' \
+  -target='module.eks_base.aws_route.private_nat_otel' \
+  -target='module.eks_base.aws_vpc_endpoint.s3' \
+  -target='module.eks_base.aws_iam_policy.aws_lb_controller' \
+  -target='module.eks_base.aws_iam_role.aws_lb_controller' \
+  -target='module.eks_base.aws_iam_role_policy_attachment.aws_lb_controller' \
+  -target='module.eks_base.aws_eks_pod_identity_association.aws_lb_controller' \
+  -target='module.observability_stack.aws_s3_bucket.loki_data' \
+  -target='module.observability_stack.aws_s3_bucket.tempo_data' \
+  -target='module.observability_stack.aws_s3_bucket.mimir_blocks' \
+  -target='module.observability_stack.aws_s3_bucket.mimir_ruler' \
+  -target='module.observability_stack.aws_s3_bucket.mimir_alertmanager' \
+  -target='module.observability_stack.aws_iam_policy.grafana_stack_s3' \
+  -target='module.observability_stack.aws_iam_role.grafana_stack' \
+  -target='module.observability_stack.aws_iam_role_policy_attachment.grafana_stack_s3_attach' \
+  -target='module.observability_stack.aws_eks_pod_identity_association.loki' \
+  -target='module.observability_stack.aws_eks_pod_identity_association.tempo' \
+  -target='module.observability_stack.aws_eks_pod_identity_association.mimir' \
+  -target='module.observability_stack.aws_prometheus_workspace.amp' \
+  -target='module.observability_stack.aws_iam_policy.otel_gateway_aws_ingest' \
+  -target='module.observability_stack.aws_iam_role.otel_gateway' \
+  -target='module.observability_stack.aws_iam_role_policy_attachment.otel_gateway_attach' \
+  -target='module.observability_stack.aws_eks_pod_identity_association.otel_gateway_tier2' \
+  -target='module.observability_stack.aws_iam_policy.grafana_amp_query' \
+  -target='module.observability_stack.aws_iam_role_policy_attachment.grafana_amp_query_attach' \
+  -target='module.observability_stack.aws_eks_pod_identity_association.grafana' \
+  -target='module.observability_stack.aws_sns_topic.observability_emergency_pager'
 
-
-INFRA_TARGETS_MULTI := \
-  $(INFRA_TARGETS_SHARED) \
-  -target='module.apps_workload_cluster_1' \
-  -target='aws_vpc_peering_connection.peering' \
-  -target='aws_route.apps_to_otel' \
-  -target='aws_route.otel_to_apps'
-
-ACTIVE_INFRA_TARGETS := $(if $(filter true,$(SINGLE_CLUSTER)),$(INFRA_TARGETS_SHARED),$(INFRA_TARGETS_MULTI))
+ACTIVE_INFRA_TARGETS := $(INFRA_TARGETS_SHARED)
 
 k8s-all: k8s-create k8s-deploy-all ## Complete end-to-end deployment: creates EKS infra, installs Helm, and deploys apps
 	@echo "=== All-in-One Deployment Completed Successfully! ==="
@@ -197,10 +199,10 @@ docker-build-push: ## Build and push Go and Python app images to Docker Hub (mak
 	fi; \
 	docker login -u $(DOCKERHUB_USER_NAME)
 	@echo "Building and pushing Go Product Service..."
-	docker build -t $(DOCKERHUB_USER_NAME)/golang-product-service:latest workloads/apps-src/golang-app
+	docker build -t $(DOCKERHUB_USER_NAME)/golang-product-service:latest workloads/golang-app
 	docker push $(DOCKERHUB_USER_NAME)/golang-product-service:latest
 	@echo "Building and pushing Python Product Info Service..."
-	docker build -t $(DOCKERHUB_USER_NAME)/python-product-info-service:latest workloads/apps-src/python-app
+	docker build -t $(DOCKERHUB_USER_NAME)/python-product-info-service:latest workloads/python-app
 	docker push $(DOCKERHUB_USER_NAME)/python-product-info-service:latest
 	@echo "Successfully pushed images to Docker Hub."
 
@@ -235,7 +237,9 @@ k8s-deploy-apps:
 		fi; \
 	fi; \
 	mkdir -p .tmp-manifests; \
-	cp -R $(APPS_MANIFEST_DIR)/* .tmp-manifests/; \
+	cp -R workloads/golang-app/*.yaml .tmp-manifests/ 2>/dev/null || true; \
+	cp -R workloads/python-app/*.yaml .tmp-manifests/ 2>/dev/null || true; \
+	cp workloads/otel-collector-daemonset.yaml .tmp-manifests/; \
 	find .tmp-manifests -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do \
 		sed "s|<IMAGE_REGISTRY>|$(REGISTRY)|g" "$$file" > "$$file.tmp"; \
 		sed "s|<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com|$(REGISTRY)|g" "$$file.tmp" > "$$file"; \
@@ -244,15 +248,17 @@ k8s-deploy-apps:
 		rm -f "$$file.tmp"; \
 	done; \
 	echo "Applying rendered OTel Agent, Apps & Ingress in $(TARGET_APPS_CLUSTER)..."; \
-	kubectl --context $(TARGET_APPS_CLUSTER) apply -R -f .tmp-manifests/; \
+	kubectl --context $(TARGET_APPS_CLUSTER) apply -f .tmp-manifests/; \
 	rm -rf .tmp-manifests
 
-# -R is required: the workload manifests live in per-app subdirectories, and a
-# non-recursive delete silently skips everything under golang-app/ and
-# python-app/, leaving the Deployments and the ALB behind.
+# Workload manifests and platform manifests teardown
 k8s-undeploy-all:
-	kubectl --context $(TARGET_APPS_CLUSTER) delete -R -f $(APPS_MANIFEST_DIR)/ --ignore-not-found=true
-	kubectl --context $(OTEL_CLUSTER) delete -R -f $(OBS_MANIFEST_DIR)/ --ignore-not-found=true
+	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/otel-collector-daemonset.yaml --ignore-not-found=true
+	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/golang-app/golang-product-service.yaml --ignore-not-found=true
+	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/golang-app/app-ingress.yaml --ignore-not-found=true
+	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/python-app/python-product-info-service.yaml --ignore-not-found=true
+	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/python-app/otel-instrumentation-python.yaml --ignore-not-found=true
+	kubectl --context $(OTEL_CLUSTER) delete -f $(OBS_MANIFEST_DIR)/ --ignore-not-found=true
 
 # ==============================================================================
 # Access & Verification
@@ -285,7 +291,7 @@ k8s-status: ## Show pod status on active cluster(s)
 # Renders the pinned charts with the repo's values so value-path mistakes are
 # caught before a 15-minute apply. Helm ignores unknown keys silently, so a
 # typo'd path produces a chart default rather than an error — diff the output
-# when changing anything under terraform/observability-cluster/helm-values/.
+# when changing anything under terraform/modules/observability-stack/helm-values/.
 helm-lint: ## Render LGTM + ELK charts locally (no cluster required)
 	@helm repo add grafana https://grafana.github.io/helm-charts >/dev/null 2>&1 || true
 	@helm repo add opensearch https://opensearch-project.github.io/helm-charts/ >/dev/null 2>&1 || true
@@ -293,17 +299,17 @@ helm-lint: ## Render LGTM + ELK charts locally (no cluster required)
 	@helm repo update grafana opensearch elastic >/dev/null 2>&1 || true
 	@mkdir -p .helm-render
 	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
-	  terraform/observability-cluster/helm-values/loki.yaml.tftpl > .helm-render/loki.yaml
+	  terraform/modules/observability-stack/helm-values/loki.yaml.tftpl > .helm-render/loki.yaml
 	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
-	  terraform/observability-cluster/helm-values/tempo.yaml.tftpl > .helm-render/tempo.yaml
+	  terraform/modules/observability-stack/helm-values/tempo.yaml.tftpl > .helm-render/tempo.yaml
 	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
-	  terraform/observability-cluster/helm-values/mimir.yaml.tftpl > .helm-render/mimir.yaml
+	  terraform/modules/observability-stack/helm-values/mimir.yaml.tftpl > .helm-render/mimir.yaml
 	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
-	  terraform/observability-cluster/helm-values/opensearch.yaml.tftpl > .helm-render/opensearch.yaml
+	  terraform/modules/observability-stack/helm-values/opensearch.yaml.tftpl > .helm-render/opensearch.yaml
 	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
-	  terraform/observability-cluster/helm-values/opensearch-dashboards.yaml.tftpl > .helm-render/opensearch-dashboards.yaml
+	  terraform/modules/observability-stack/helm-values/opensearch-dashboards.yaml.tftpl > .helm-render/opensearch-dashboards.yaml
 	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
-	  terraform/observability-cluster/helm-values/logstash.yaml.tftpl > .helm-render/logstash.yaml
+	  terraform/modules/observability-stack/helm-values/logstash.yaml.tftpl > .helm-render/logstash.yaml
 	@echo "--- loki 7.2.0 ---"
 	@helm template loki grafana/loki --version 7.2.0 -n monitoring \
 	  -f .helm-render/loki.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'Deployment|StatefulSet|DaemonSet'
