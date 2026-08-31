@@ -22,7 +22,11 @@ workloads/
 │   ├── python-product-info-service.yaml # Deployment with inject-python annotations
 │   └── otel-instrumentation-python.yaml # OpenTelemetry Operator Instrumentation CR
 │
-└── otel-collector-daemonset.yaml   # Node-local DaemonSet Collector + OBI eBPF (HostNetwork Downward API)
+├── samples/                        # Benchmark & Demonstration Workloads
+│   ├── uninstrumented-nginx.yaml   # Level 1 eBPF & Filelog demo (100% Uninstrumented Nginx + LoadGen)
+│   └── bookinfo.yaml               # Polyglot Bookinfo microservices (Runs WITHOUT Istio/Envoy)
+│
+└── otel-collector-daemonset.yaml   # Tier 1 Edge Node DaemonSet Collector + OBI eBPF (HostNetwork Downward API)
 ```
 
 ---

@@ -60,8 +60,11 @@ variable "karpenter_cpu_limit" {
 variable "karpenter_memory_limit" {
   description = "Max memory limit for Karpenter node provisioning (e.g. 200Gi)"
   type        = string
-  default     = "200Gi"
+  default     = "1000Gi"
 }
 
-
-
+variable "karpenter_enable_spot" {
+  description = "Whether Karpenter should provision Spot instances alongside on-demand"
+  type        = bool
+  default     = false
+}

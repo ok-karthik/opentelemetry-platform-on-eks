@@ -1,0 +1,100 @@
+# ==============================================================================
+# Sample Workload: 100% Uninstrumented Legacy NGINX + Synthetic Traffic Gen
+#
+# Purpose:
+# Demonstrates "Level 1: Kernel-Space eBPF (OBI)" and Pod "filelog" observability.
+# This container contains ZERO OpenTelemetry SDKs, ZERO annotations, and ZERO code modifications.
+# The OBI eBPF DaemonSet captures HTTP Request Rate, Error Rates (404/200),
+# Latency histograms, and TCP socket stats directly from kernel syscalls.
+# ==============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: uninstrumented-nginx
+  namespace: default
+  labels:
+    app.kubernetes.io/name: uninstrumented-nginx
+    team: legacy-infrastructure
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: uninstrumented-nginx
+  template:
+    metadata:
+      labels:
+        app: uninstrumented-nginx
+        app.kubernetes.io/name: uninstrumented-nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: uninstrumented-nginx
+  namespace: default
+  labels:
+    app.kubernetes.io/name: uninstrumented-nginx
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  selector:
+    app: uninstrumented-nginx
+---
+# Synthetic Traffic Generator
+# Simulates live user traffic by generating a mix of successful (200 OK) and error (404 Not Found) requests.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-traffic-generator
+  namespace: default
+  labels:
+    app.kubernetes.io/name: nginx-traffic-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-traffic-generator
+  template:
+    metadata:
+      labels:
+        app: nginx-traffic-generator
+    spec:
+      containers:
+        - name: traffic-gen
+          image: curlimages/curl:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Starting synthetic load generation against uninstrumented-nginx..."
+              while true; do
+                # 80% healthy requests (HTTP 200)
+                for i in $(seq 1 4); do
+                  curl -s -o /dev/null -w "200: %{http_code} in %{time_total}s\n" http://uninstrumented-nginx/
+                  sleep 0.1
+                done
+                # 20% error requests (HTTP 404)
+                curl -s -o /dev/null -w "404: %{http_code} in %{time_total}s\n" http://uninstrumented-nginx/non-existent-endpoint
+                sleep 0.2
+              done
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 64Mi

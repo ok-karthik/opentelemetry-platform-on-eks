@@ -299,6 +299,10 @@ resource "helm_release" "karpenter_provisioner" {
     name  = "memoryLimit"
     value = var.karpenter_memory_limit
   }
+  set {
+    name  = "enableSpot"
+    value = var.karpenter_enable_spot
+  }
 
   depends_on = [helm_release.karpenter]
 }

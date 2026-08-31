@@ -1,0 +1,301 @@
+# ==============================================================================
+# Sample Workload: Istio Bookinfo Polyglot Microservices (Runs WITHOUT Istio)
+#
+# Purpose:
+# Demonstrates how the 3-Tier OpenTelemetry Platform (OBI eBPF + OTel Operator)
+# provides comprehensive golden signal metrics (Rate, Errors, Duration), network
+# topology, and distributed tracing across polyglot microservices (Python, Ruby,
+# Java, Node.js) with ZERO Envoy sidecars and ZERO proxy latency overhead.
+#
+# Architecture Topology:
+#   [Traffic Generator]
+#           │ (GET /productpage)
+#           ▼
+#     productpage (Python:9080) ────┬───► details (Ruby:9080)
+#                                   └───► reviews (Java:9080) ───► ratings (Node.js:9080)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Details Service (Ruby)
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: details
+  namespace: default
+  labels:
+    app: details
+    service: details
+spec:
+  ports:
+    - port: 9080
+      name: http
+  selector:
+    app: details
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: details-v1
+  namespace: default
+  labels:
+    app: details
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: details
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: details
+        version: v1
+        app.kubernetes.io/name: bookinfo-details
+    spec:
+      containers:
+        - name: details
+          image: docker.io/istio/examples-bookinfo-details-v1:1.20.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9080
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+---
+# ------------------------------------------------------------------------------
+# 2. Ratings Service (Node.js)
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratings
+  namespace: default
+  labels:
+    app: ratings
+    service: ratings
+spec:
+  ports:
+    - port: 9080
+      name: http
+  selector:
+    app: ratings
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratings-v1
+  namespace: default
+  labels:
+    app: ratings
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ratings
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: ratings
+        version: v1
+        app.kubernetes.io/name: bookinfo-ratings
+    spec:
+      containers:
+        - name: ratings
+          image: docker.io/istio/examples-bookinfo-ratings-v1:1.20.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9080
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+---
+# ------------------------------------------------------------------------------
+# 3. Reviews Service (Java) - v1 (No stars) & v2 (Black stars via ratings)
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews
+  namespace: default
+  labels:
+    app: reviews
+    service: reviews
+spec:
+  ports:
+    - port: 9080
+      name: http
+  selector:
+    app: reviews
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v1
+  namespace: default
+  labels:
+    app: reviews
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: reviews
+        version: v1
+        app.kubernetes.io/name: bookinfo-reviews
+    spec:
+      containers:
+        - name: reviews
+          image: docker.io/istio/examples-bookinfo-reviews-v1:1.20.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9080
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 192Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v2
+  namespace: default
+  labels:
+    app: reviews
+    version: v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: reviews
+        version: v2
+        app.kubernetes.io/name: bookinfo-reviews
+    spec:
+      containers:
+        - name: reviews
+          image: docker.io/istio/examples-bookinfo-reviews-v2:1.20.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9080
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 192Mi
+---
+# ------------------------------------------------------------------------------
+# 4. ProductPage Service (Python)
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: productpage
+  namespace: default
+  labels:
+    app: productpage
+    service: productpage
+spec:
+  ports:
+    - port: 9080
+      name: http
+  selector:
+    app: productpage
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: productpage-v1
+  namespace: default
+  labels:
+    app: productpage
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: productpage
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: productpage
+        version: v1
+        app.kubernetes.io/name: bookinfo-productpage
+      # Optional: To test Level 2 OTel Operator Auto-Instrumentation on Python, uncomment:
+      # annotations:
+      #   instrumentation.opentelemetry.io/inject-python: "python-instrumentation"
+    spec:
+      containers:
+        - name: productpage
+          image: docker.io/istio/examples-bookinfo-productpage-v1:1.20.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9080
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              memory: 96Mi
+---
+# ------------------------------------------------------------------------------
+# 5. Synthetic Traffic Generator for Bookinfo
+# ------------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bookinfo-traffic-generator
+  namespace: default
+  labels:
+    app.kubernetes.io/name: bookinfo-traffic-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bookinfo-traffic-generator
+  template:
+    metadata:
+      labels:
+        app: bookinfo-traffic-generator
+    spec:
+      containers:
+        - name: traffic-gen
+          image: curlimages/curl:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Waiting for productpage to become ready..."
+              sleep 5
+              echo "Starting continuous traffic loop against http://productpage:9080/productpage ..."
+              while true; do
+                curl -s -o /dev/null -w "Bookinfo HTTP %{http_code} in %{time_total}s\n" http://productpage:9080/productpage
+                sleep 0.5
+              done
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 64Mi

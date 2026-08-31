@@ -12,13 +12,16 @@ OBS_MANIFEST_DIR = observability-platform
 AWS_ACCOUNT_ID ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
 DOCKERHUB_USER_NAME ?=
 
+USE_SPOT ?= true
+TF_SPOT_VARS := $(if $(filter true,$(USE_SPOT)),-var="node_group_capacity_type=SPOT" -var="karpenter_enable_spot=true",-var="node_group_capacity_type=ON_DEMAND" -var="karpenter_enable_spot=false")
+
 TF_DIR := terraform
 TARGET_APPS_CLUSTER := $(OTEL_CLUSTER)
 
-.PHONY: help k8s-all k8s-create k8s-create-infra k8s-create-helm k8s-destroy k8s-context k8s-deploy-all k8s-deploy-otel k8s-deploy-apps k8s-undeploy-all k8s-dashboards grafana-password k8s-status helm-lint ecr-build-push docker-build-push
+.PHONY: help k8s-all k8s-create k8s-create-infra k8s-create-helm k8s-destroy k8s-context k8s-deploy-all k8s-deploy-otel k8s-deploy-apps k8s-deploy-samples k8s-undeploy-samples k8s-undeploy-all k8s-dashboards grafana-password k8s-status helm-lint ecr-build-push docker-build-push
 
 help: ## Show this help message
-	@echo "Usage: make [target] [SINGLE_CLUSTER=true]"
+	@echo "Usage: make [target] [SINGLE_CLUSTER=true] [USE_SPOT=true]"
 	@echo ""
 	@echo "All-in-One Deployment:"
 	@echo "  k8s-all              Complete end-to-end setup: creates infra, installs Helm, and deploys apps"
@@ -34,10 +37,11 @@ help: ## Show this help message
 	@echo "  docker-build-push    Build and push demo images to Docker Hub (DOCKERHUB_USER_NAME=...)"
 	@echo "  ecr-build-push       Build and push demo images to Amazon ECR"
 	@echo ""
-	@echo "Deploying Observability:"
+	@echo "Deploying Observability & Workloads:"
 	@echo "  k8s-deploy-all       Deploy both the Otel Gateway stack and the microservices stack"
 	@echo "  k8s-deploy-otel      Apply dashboards, Gateway, and LB Services to the observability cluster"
 	@echo "  k8s-deploy-apps      Apply DaemonSet, Instrumentation, and apps (to $(TARGET_APPS_CLUSTER))"
+	@echo "  k8s-deploy-samples   Deploy uninstrumented NGINX & standalone Bookinfo microservices"
 	@echo "  k8s-undeploy-all     Remove manifests from cluster(s)"
 	@echo ""
 	@echo "Access & Verification:"
@@ -101,9 +105,10 @@ k8s-all: k8s-create k8s-deploy-all ## Complete end-to-end deployment: creates EK
 	@echo "=== All-in-One Deployment Completed Successfully! ==="
 
 k8s-create: ## Create EKS cluster(s) and deploy Helm charts (use SINGLE_CLUSTER=true for single cluster)
-	@echo "=== Stage 1: Provisioning EKS infra in $(TF_DIR) ==="
+	@echo "=== Stage 1: Provisioning EKS infra in $(TF_DIR) (USE_SPOT=$(USE_SPOT)) ==="
 	cd $(TF_DIR) && terraform init -upgrade && \
 	  terraform apply $(ACTIVE_INFRA_TARGETS) \
+	    $(TF_SPOT_VARS) \
 	    -parallelism=20 \
 	    -auto-approve
 	@echo ""
@@ -111,13 +116,15 @@ k8s-create: ## Create EKS cluster(s) and deploy Helm charts (use SINGLE_CLUSTER=
 	cd $(TF_DIR) && \
 	  terraform apply \
 	    -var="deploy_observability_stack=true" \
+	    $(TF_SPOT_VARS) \
 	    -parallelism=20 \
 	    -auto-approve
 
 k8s-create-infra: ## Stage 1 only — provision EKS infra without Helm charts (for re-runs)
-	@echo "=== Stage 1 only: EKS infra in $(TF_DIR) ==="
+	@echo "=== Stage 1 only: EKS infra in $(TF_DIR) (USE_SPOT=$(USE_SPOT)) ==="
 	cd $(TF_DIR) && terraform init -upgrade && \
 	  terraform apply $(ACTIVE_INFRA_TARGETS) \
+	    $(TF_SPOT_VARS) \
 	    -parallelism=20 \
 	    -auto-approve
 
@@ -126,12 +133,14 @@ k8s-create-helm: ## Stage 2 only — install/upgrade Helm charts (assumes EKS is
 	cd $(TF_DIR) && \
 	  terraform apply \
 	    -var="deploy_observability_stack=true" \
+	    $(TF_SPOT_VARS) \
 	    -parallelism=20 \
 	    -auto-approve
 
 k8s-destroy: ## Destroy all AWS resources in active topology
 	cd $(TF_DIR) && terraform destroy \
 	  -var="deploy_observability_stack=true" \
+	  $(TF_SPOT_VARS) \
 	  -parallelism=20 \
 	  -auto-approve
 
@@ -251,8 +260,17 @@ k8s-deploy-apps:
 	kubectl --context $(TARGET_APPS_CLUSTER) apply -f .tmp-manifests/; \
 	rm -rf .tmp-manifests
 
+# Deploy uninstrumented Nginx and standalone polyglot Bookinfo sample apps
+k8s-deploy-samples: ## Deploy uninstrumented NGINX & standalone Bookinfo microservices with traffic generators
+	@echo "Deploying sample workloads (Uninstrumented Nginx & Standalone Bookinfo) in $(TARGET_APPS_CLUSTER)..."
+	kubectl --context $(TARGET_APPS_CLUSTER) apply -f workloads/samples/
+
+k8s-undeploy-samples: ## Remove sample workloads
+	@echo "Removing sample workloads from $(TARGET_APPS_CLUSTER)..."
+	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/samples/ --ignore-not-found=true
+
 # Workload manifests and platform manifests teardown
-k8s-undeploy-all:
+k8s-undeploy-all: k8s-undeploy-samples
 	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/otel-collector-daemonset.yaml --ignore-not-found=true
 	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/golang-app/golang-product-service.yaml --ignore-not-found=true
 	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/golang-app/app-ingress.yaml --ignore-not-found=true

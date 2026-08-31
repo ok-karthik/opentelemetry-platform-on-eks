@@ -29,7 +29,7 @@ variable "deploy_opensearch_stack" {
 variable "use_amazon_managed_prometheus" {
   description = "Whether to use Amazon Managed Service for Prometheus (AMP) for metrics instead of self-hosting Mimir"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "node_group_capacity_type" {
@@ -41,6 +41,12 @@ variable "node_group_capacity_type" {
     condition     = contains(["SPOT", "ON_DEMAND"], var.node_group_capacity_type)
     error_message = "node_group_capacity_type must be either SPOT or ON_DEMAND."
   }
+}
+
+variable "karpenter_enable_spot" {
+  description = "Whether Karpenter should provision Spot instances alongside on-demand"
+  type        = bool
+  default     = false
 }
 
 variable "node_group_instance_types" {

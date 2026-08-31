@@ -318,7 +318,8 @@ spec:
         metrics:
           receivers: [otlp/internal, prometheus/meta_monitoring]
           processors: [memory_limiter, batch]
-          exporters: [prometheusremotewrite/amp]
+          # Pushes to self-hosted Mimir by default. Swap to prometheusremotewrite/amp if using AWS AMP.
+          exporters: [prometheusremotewrite]
         logs:
           receivers: [otlp/internal]
           processors: [memory_limiter, batch]
