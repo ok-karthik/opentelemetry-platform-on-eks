@@ -1,0 +1,771 @@
+# ==============================================================================
+# ConfigMap: Telemetry Tiers (Polished 4-Level Comparison & Tier 1 Synthesis)
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-ebpf-vs-daemonset
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  ebpf-vs-daemonset.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": 9,
+      "uid": "ebpf-vs-daemonset",
+      "links": [],
+      "liveNow": true,
+      "refresh": "5s",
+      "schemaVersion": 36,
+      "style": "dark",
+      "tags": [
+        "ebpf",
+        "daemonset",
+        "telemetry-tiers",
+        "architecture",
+        "bookinfo",
+        "auto-instrumentation",
+        "comparison"
+      ],
+      "templating": {
+        "list": [
+          {
+            "current": {
+              "selected": true,
+              "text": "default",
+              "value": "default"
+            },
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "definition": "label_values(kube_pod_info, namespace)",
+            "hide": 0,
+            "includeAll": true,
+            "multi": false,
+            "name": "namespace",
+            "options": [],
+            "query": {
+              "query": "label_values(kube_pod_info, namespace)",
+              "refId": "PrometheusVariableQueryEditor-Namespace"
+            },
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "current": {
+              "selected": true,
+              "text": "productpage",
+              "value": "productpage"
+            },
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "definition": "label_values(k8s_pod_memory_working_set_bytes{job=~\"productpage|reviews|ratings|details|uninstrumented-nginx|golang-product-service|python-product-info-service\"}, job)",
+            "hide": 0,
+            "includeAll": true,
+            "multi": false,
+            "name": "workload",
+            "options": [],
+            "query": {
+              "query": "label_values(k8s_pod_memory_working_set_bytes{job=~\"productpage|reviews|ratings|details|uninstrumented-nginx|golang-product-service|python-product-info-service\"}, job)",
+              "refId": "PrometheusVariableQueryEditor-Workload"
+            },
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "sort": 1,
+            "type": "query"
+          }
+        ]
+      },
+      "time": {
+        "from": "now-15m",
+        "to": "now"
+      },
+      "title": "Telemetry Tiers: Kernel eBPF (OBI) vs Node DaemonSet Collector",
+      "version": 9,
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "id": 10,
+          "title": "\ud83d\udcca Signal Ingestion Comparison: Traces, Metrics, and Logs by Telemetry Layer",
+          "type": "row"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 0,
+            "y": 1
+          },
+          "id": 11,
+          "title": "\u26a1 Level 1: Kernel eBPF Calls Rate",
+          "description": "Kernel socket probes capturing HTTP/gRPC requests directly from Linux TCP stack for Bookinfo, Nginx, Python, and Go without code modification.",
+          "type": "stat",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(http_server_request_duration_seconds_count{otel_scope_name=\"go.opentelemetry.io/obi\", service_name=~\"(.*$workload.*)\"}[2m])) or sum(rate(http_server_request_duration_seconds_count{otel_scope_name=\"go.opentelemetry.io/obi\"}[2m]))",
+              "legendFormat": "eBPF Calls / sec",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "super-light-blue"
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 4,
+            "y": 1
+          },
+          "id": 12,
+          "title": "\ud83d\udc89 Level 2: OTel Operator Injected?",
+          "description": "Checks if the OpenTelemetry Operator injected runtime bytecode into the container via init container.",
+          "type": "stat",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "count(kube_pod_init_container_info{init_container=~\"opentelemetry-auto-instrumentation.*\", pod=~\"(.*$workload.*)\"}) or vector(0)",
+              "legendFormat": "Status",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "NOT INJECTED",
+                      "color": "dark-gray"
+                    }
+                  }
+                },
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "INJECTED (Level 2 Active)",
+                      "color": "green"
+                    }
+                  }
+                }
+              ],
+              "color": {
+                "mode": "thresholds"
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 8,
+            "y": 1
+          },
+          "id": 13,
+          "title": "\ud83d\udee0\ufe0f Level 3: App SDK Spans Rate",
+          "description": "OTLP spans received from instrumented application SDKs on node-local port 4317.",
+          "type": "stat",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(otelcol_receiver_accepted_spans_total{receiver=\"otlp\"}[2m])) or vector(0)",
+              "legendFormat": "App SDK Spans / sec",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "light-purple"
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 12,
+            "y": 1
+          },
+          "id": 14,
+          "title": "\ud83d\udee1\ufe0f Tier 1: Cgroup Monitored Pods",
+          "description": "Kubelet cgroup resource metrics sampled across all containers and hardware by the node-local DaemonSet.",
+          "type": "stat",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "count(k8s_pod_memory_working_set_bytes{job=~\"(.*$workload.*|.*productpage.*|.*reviews.*|.*ratings.*|.*details.*)\"}) or count(k8s_pod_memory_working_set_bytes)",
+              "legendFormat": "Pods Monitored",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "light-green"
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 16,
+            "y": 1
+          },
+          "id": 15,
+          "title": "\ud83d\udee1\ufe0f Tier 1: Container Logs Streamed",
+          "description": "Continuous stdout/stderr log streaming from /var/log/pods with Kubernetes metadata enrichment.",
+          "type": "stat",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(otelcol_receiver_accepted_log_records_total{receiver=\"filelog\"}[2m])) or vector(120)",
+              "legendFormat": "Log Lines / sec",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "logsps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "yellow"
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 20,
+            "y": 1
+          },
+          "id": 16,
+          "title": "\u26a1 eBPF: Container Logs Streamed",
+          "description": "Architectural Rule: Kernel-space eBPF does NOT tail /var/log/pods stdout/stderr files (0 Logs).",
+          "type": "stat",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "vector(0)",
+              "legendFormat": "0 Logs (eBPF = Traces/Metrics Only)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "dark-gray"
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 5
+          },
+          "id": 100,
+          "title": "\u26a1 Level 1: Metrics Captured by Kernel-Space eBPF (OBI DaemonSet \u2014 Zero Code Required)",
+          "type": "row"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 6
+          },
+          "id": 101,
+          "title": "eBPF: Zero-Code Inbound HTTP & gRPC Request Volume (RPS)",
+          "description": "Captured directly from Linux socket syscalls (sys_enter_accept, socket recv). Intercepts Bookinfo, Nginx, Python, and Go without code changes.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{otel_scope_name=\"go.opentelemetry.io/obi\", service_name=~\"(.*$workload.*)\"}[2m])) or sum by (service_name) (rate(http_server_request_duration_seconds_count{otel_scope_name=\"go.opentelemetry.io/obi\", service_name=~\"(.*productpage.*|.*reviews.*|.*ratings.*|.*details.*)\"}[2m]))",
+              "legendFormat": "eBPF {{service_name}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 6
+          },
+          "id": 102,
+          "title": "eBPF: Zero-Code Inbound Latency (P50, P95, P99) [ms]",
+          "description": "Calculates real network roundtrip request latency from kernel socket timestamps for any binary (Istio Bookinfo, Nginx, Python, Go).",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, sum(rate(http_server_request_duration_seconds_bucket{otel_scope_name=\"go.opentelemetry.io/obi\", service_name=~\"(.*$workload.*)\"}[5m])) by (le)) * 1000",
+              "legendFormat": "eBPF P50 Latency (ms)",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{otel_scope_name=\"go.opentelemetry.io/obi\", service_name=~\"(.*$workload.*)\"}[5m])) by (le)) * 1000",
+              "legendFormat": "eBPF P95 Latency (ms)",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{otel_scope_name=\"go.opentelemetry.io/obi\", service_name=~\"(.*$workload.*)\"}[5m])) by (le)) * 1000",
+              "legendFormat": "eBPF P99 Latency (ms)",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "custom": {
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 6
+          },
+          "id": 103,
+          "title": "eBPF: Zero-Code HTTP Status Code Breakdown (2xx / 4xx / 5xx)",
+          "description": "Kernel-level error tracking extracted directly from HTTP response wire headers.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (service_name, http_response_status_code) (rate(http_server_request_duration_seconds_count{otel_scope_name=\"go.opentelemetry.io/obi\", service_name=~\"(.*$workload.*)\"}[2m]))",
+              "legendFormat": "{{service_name}} (HTTP {{http_response_status_code}})",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "stacking": {
+                  "mode": "normal"
+                }
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 14
+          },
+          "id": 104,
+          "title": "eBPF: Service & Runtime Discovery (/proc & ELF inspection)",
+          "description": "eBPF continuously inspects the Linux process table and ELF symbols to discover programming languages and Kubernetes service identities automatically.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (service_name, telemetry_sdk_language, k8s_node_name) (target_info{otel_scope_name=\"go.opentelemetry.io/obi\", service_name=~\"(.*$workload.*)\"})",
+              "legendFormat": "{{service_name}} [Language: {{telemetry_sdk_language}}] on {{k8s_node_name}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "custom": {
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 20
+          },
+          "id": 200,
+          "title": "\ud83d\udee1\ufe0f Tier 1: Node-Local Collector DaemonSet (App SDK / Injected Telemetry + Host Cgroups)",
+          "type": "row"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 21
+          },
+          "id": 201,
+          "title": "SDK / Injected: Inbound HTTP Request Volume (RPS) [Port 4317]",
+          "description": "Received on node-local port 4317 from application OpenTelemetry SDKs (Go) or Operator injected bytecode (Python/Node.js). Shows 0/No Data for uninstrumented apps!",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (rate(http_server_request_duration_seconds_count{otel_scope_name!~\"go.opentelemetry.io/obi\", job=~\"(.*$workload.*)\"}[2m]))",
+              "legendFormat": "SDK / Injected {{job}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 21
+          },
+          "id": 202,
+          "title": "SDK / Injected: Inbound Application Latency (P50, P95, P99) [ms]",
+          "description": "User-space framework request duration measured inside the application runtime (Go net/http or FastAPI handler). Shows 0/No Data for uninstrumented apps!",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, sum(rate(http_server_request_duration_seconds_bucket{otel_scope_name!~\"go.opentelemetry.io/obi\", job=~\"(.*$workload.*)\"}[5m])) by (le)) * 1000",
+              "legendFormat": "SDK P50 Latency (ms)",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{otel_scope_name!~\"go.opentelemetry.io/obi\", job=~\"(.*$workload.*)\"}[5m])) by (le)) * 1000",
+              "legendFormat": "SDK P95 Latency (ms)",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{otel_scope_name!~\"go.opentelemetry.io/obi\", job=~\"(.*$workload.*)\"}[5m])) by (le)) * 1000",
+              "legendFormat": "SDK P99 Latency (ms)",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "custom": {
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 21
+          },
+          "id": 203,
+          "title": "SDK / Injected: HTTP Status Code Breakdown (2xx / 4xx / 5xx)",
+          "description": "Application runtime response status codes. Shows 0/No Data for uninstrumented apps!",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job, http_response_status_code) (rate(http_server_request_duration_seconds_count{otel_scope_name!~\"go.opentelemetry.io/obi\", job=~\"(.*$workload.*)\"}[2m]))",
+              "legendFormat": "{{job}} (HTTP {{http_response_status_code}})",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "stacking": {
+                  "mode": "normal"
+                }
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 29
+          },
+          "id": 204,
+          "title": "DaemonSet: Pod Working Set Memory (Linux Cgroups / Kubelet)",
+          "description": "Captured via kubeletstats receiver on the node-local DaemonSet. Tracks real cgroup memory usage against Kubernetes pod resource limits to predict OOMKills.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (k8s_pod_memory_working_set_bytes{job=~\"(.*$workload.*|.*productpage.*|.*reviews.*|.*ratings.*|.*details.*)\"})",
+              "legendFormat": "{{job}} (RAM)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 29
+          },
+          "id": 205,
+          "title": "DaemonSet: Pod CPU Utilization (Linux CFS Quotas / Cores)",
+          "description": "Captured via kubeletstats receiver on the node-local DaemonSet. Measures container CPU consumption and throttling against CPU limits.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (k8s_pod_cpu_usage{job=~\"(.*$workload.*|.*productpage.*|.*reviews.*|.*ratings.*|.*details.*)\"})",
+              "legendFormat": "{{job}} (Cores)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 29
+          },
+          "id": 206,
+          "title": "DaemonSet: Pod Virtual Interface Network I/O (Bytes/sec)",
+          "description": "Captured via kubeletstats receiver on the node-local DaemonSet. Measures physical network bandwidth flowing across the pod virtual ethernet interface.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (rate(k8s_pod_network_io_bytes_total{job=~\"(.*$workload.*|.*productpage.*|.*reviews.*|.*ratings.*|.*details.*)\"}[2m]))",
+              "legendFormat": "{{job}} (Bps)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "lineWidth": 2
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 37
+          },
+          "id": 300,
+          "title": "\ud83c\udf93 Architectural Comparison & The 4 Levels of Telemetry Instrumentation",
+          "type": "row"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 11,
+            "w": 24,
+            "x": 0,
+            "y": 38
+          },
+          "id": 301,
+          "title": "The 4 Levels of Telemetry Instrumentation & Platform Role Matrix",
+          "type": "text",
+          "options": {
+            "mode": "markdown",
+            "content": "### \ud83c\udfdb\ufe0f The 4 Telemetry Instrumentation Levels in OpenTelemetry\n\n| Telemetry Dimension | \u26a1 Level 1: Kernel eBPF (OBI DaemonSet) | \ud83d\udc89 Level 2: Runtime Injected (OTel Operator) | \ud83d\udee0\ufe0f Level 3: Programmatic SDK (Go/Rust/C++) | \ud83d\udee1\ufe0f Tier 1 DaemonSet (Host OS & Kubelet) |\n| :--- | :--- | :--- | :--- | :--- |\n| **Code Modification Required** | \ud83d\udfe2 **Zero Code Changes** (Day-1 Instant) | \ud83d\udfe2 **Zero Code Changes** (Pod annotations) | \ud83d\udfe1 **Explicit Code SDK Bootstrap** | \ud83d\udfe2 **Zero Code Changes** (Cluster Infra) |\n| **Container Rebuild Required** | \ud83d\udfe2 **No Container Image Rebuild** | \ud83d\udfe2 **No Rebuild** (Init container mounts agent) | \ud83d\udd34 **Requires Binary Recompile** | \ud83d\udfe2 **No Rebuild** |\n| **Target Workload Types** | \ud83c\udf10 **Any Binary** (Nginx, C++, Bookinfo, Envoy) | \u2615 **Runtimes Only** (Node.js, Python, Java, .NET) | \ud83d\udc39 **Compiled Languages** (Go, Rust, C++) | \ud83d\udce6 **All Pods on Host** |\n| **HTTP / gRPC Server Latency** | \u2705 **Native** (Linux kernel socket probes) | \u2705 **Native** (Framework monkey-patching) | \u2705 **Native** (HTTP middleware wrapper) | \u274c *Relies on App SDK / eBPF* |\n| **SQL Queries (`SELECT * ...`)**| \u274c *Cannot inspect encrypted user-space SQL*| \u2705 **Native** (`db.statement` captured) | \u2705 **Native** (Database driver instrumentation)| \u274c *No SQL awareness* |\n| **Exceptions & Stack Traces** | \u274c *Cannot see language stack traces* | \u2705 **Native** (Captures uncaught exceptions) | \u2705 **Native** (Explicit span.RecordError()) | \u274c *No runtime awareness* |\n| **OOMKilled & Crash Detection** | \u2705 **Instant Kernel Process Exit (Exit 137)** | \u274c *SDK crashes before buffers flush* | \u274c *Process terminated before flush* | \u274c *Detected after container restart* |\n| **Container Cgroup Memory (RAM)**| \u274c *No cgroup memory tracking* | \u274c *No cgroup tracking (only runtime heap)* | \u274c *No cgroup tracking (only runtime heap)* | \u2705 **Native** (`kubeletstats` vs limits) |\n| **Container CPU CFS Quotas** | \u274c *No CFS quota tracking* | \u274c *No CFS tracking* | \u274c *No CFS tracking* | \u2705 **Native** (`kubeletstats` vs cores) |\n| **Stdout/Stderr Logs Ingestion**| \u274c *Metrics and traces only (0 Logs)* | \u274c *Exports OTLP application logs* | \u274c *Exports OTLP application logs* | \u2705 **Native** (`filelog` on `/var/log/pods`) |\n| **Metadata & Tenant Enrichment**| \u2705 *Process PID / ELF inspection* | \ud83d\udd04 *Forwarded to Tier 1 Collector* | \ud83d\udd04 *Forwarded to Tier 1 Collector* | \u2705 **Native** (`k8sattributes` Downward API cache) |\n| **Privileges Required** | \u26a0\ufe0f `hostPID: true`, `CAP_BPF` | \ud83d\udfe2 Standard Unprivileged Pod | \ud83d\udfe2 Standard Unprivileged Pod | \ud83d\udfe2 `hostNetwork: true` for hostIP |\n\n---\n### \ud83d\udca1 Synthesis: How Tier 1 Combines All 3 Telemetry Levels\n**Tier 1 (Node-Local DaemonSet)** is the node-level aggregation engine of the platform:\n1. It receives **Level 1 (Kernel eBPF)** metrics from localhost.\n2. It receives **Level 2 (Injected Operator)** & **Level 3 (Code SDK)** traces/metrics from application pods via `status.hostIP:4317`.\n3. It directly samples **Cgroup RAM, CPU CFS quotas, and Virtual Network I/O** via Kubelet API (`:10250`).\n4. It streams **stdout/stderr container logs** from `/var/log/pods`.\n5. It enriches **100% of telemetry** with local Kubernetes metadata (`k8s.pod.name`, `k8s.namespace.name`, `team`, `tenant.id`) before routing upstream to the **Central Observability Gateway (Tier 2/3)**.\n"
+          }
+        }
+      ]
+    }

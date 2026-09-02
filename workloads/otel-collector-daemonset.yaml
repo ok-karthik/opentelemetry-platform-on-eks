@@ -283,7 +283,7 @@ spec:
             # every binary on the node, and the Go service's binary is named
             # `main` — far too generic to match by executable name safely.
             - name: OTEL_EBPF_OPEN_PORT
-              value: "8080,8001"
+              value: "80,8080,8001,9080"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://localhost:4318"
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
