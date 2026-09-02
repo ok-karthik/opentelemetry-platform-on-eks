@@ -1,0 +1,133 @@
+# ==============================================================================
+# High-Scale Observability Benchmark & Traffic Generators
+#
+# Contains two complementary load-generation tiers:
+# 1. Application-Level HTTP Stressor: Blasts real REST requests to the Go & Python
+#    apps, generating full-stack W3C traces, runtime metrics, and kernel eBPF probes.
+# 2. Native OTLP Blast Generator (telemetrygen): Direct synthetic high-QPS OTLP
+#    traces/metrics/logs directly into the pipeline for capacity stress testing.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Application-Level HTTP Traffic Generator
+# ------------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-traffic-generator
+  namespace: default
+  labels:
+    app: app-traffic-generator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-traffic-generator
+  template:
+    metadata:
+      labels:
+        app: app-traffic-generator
+    spec:
+      containers:
+        - name: http-blaster
+          image: curlimages/curl:latest
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              echo "Starting comprehensive HTTP traffic loop across all services..."
+              while true; do
+                # 1. Primary Go Microservice (calls Python product-info via distributed trace context)
+                for i in $(seq 1 15); do
+                  curl -s -o /dev/null -w "Go App: %{http_code}\n" http://golang-app.default.svc.cluster.local:8080/product &
+                  curl -s -o /dev/null -w "Python App: %{http_code}\n" http://python-app.default.svc.cluster.local:8001/product-info &
+                done
+
+                # 2. Uninstrumented NGINX (Level 1 Kernel eBPF OBI)
+                for i in $(seq 1 5); do
+                  curl -s -o /dev/null -w "NGINX 200: %{http_code}\n" http://uninstrumented-nginx.default.svc.cluster.local/ &
+                done
+                curl -s -o /dev/null -w "NGINX 404: %{http_code}\n" http://uninstrumented-nginx.default.svc.cluster.local/not-found &
+
+                # 3. Istio Bookinfo Polyglot (productpage -> details/reviews -> ratings)
+                for i in $(seq 1 5); do
+                  curl -s -o /dev/null -w "Bookinfo: %{http_code}\n" http://productpage.default.svc.cluster.local:9080/productpage &
+                done
+
+                wait
+                sleep 0.1
+              done
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+# ------------------------------------------------------------------------------
+# 2. Native OTLP High-QPS Blast Generator (telemetrygen)
+# Blasts 5,000+ spans/sec directly to the node-local OTel daemonset agent (:4317)
+# ------------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otlp-high-scale-generator
+  namespace: default
+  labels:
+    app: otlp-high-scale-generator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: otlp-high-scale-generator
+  template:
+    metadata:
+      labels:
+        app: otlp-high-scale-generator
+    spec:
+      containers:
+        - name: telemetrygen-traces
+          image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+          args:
+            - "traces"
+            - "--otlp-endpoint=$(HOST_IP):4317"
+            - "--otlp-insecure=true"
+            - "--rate=2500"
+            - "--workers=5"
+            - "--duration=2h"
+            - "--service=benchmark-load-service"
+          env:
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          resources:
+            requests:
+              cpu: 200m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+        - name: telemetrygen-logs
+          image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+          args:
+            - "logs"
+            - "--otlp-endpoint=$(HOST_IP):4317"
+            - "--otlp-insecure=true"
+            - "--rate=2500"
+            - "--workers=5"
+            - "--duration=24h"
+            - "--service=benchmark-load-service"
+          env:
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          resources:
+            requests:
+              cpu: 200m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi

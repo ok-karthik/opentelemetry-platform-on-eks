@@ -1,0 +1,224 @@
+# ==============================================================================
+# ConfigMap 4: OTel Pipeline Meta-Monitoring & Collector Self-Health
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-meta-monitoring
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  otel-collector-meta-monitoring-dashboard.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": 4,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "title": "Data Loss: Dropped Telemetry",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(sum by (job, instance) (rate(otelcol_processor_dropped_spans_total[5m])) + sum by (job, instance) (rate(otelcol_processor_dropped_metric_points_total[5m])) + sum by (job, instance) (rate(otelcol_processor_dropped_log_records_total[5m]))) or (sum by (job, instance) (up{job=~\"otel-collector.*\"}) * 0)",
+              "legendFormat": "{{job}} / {{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "id": 2,
+          "title": "Backpressure: Refused Telemetry",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(sum by (job, instance) (rate(otelcol_receiver_refused_spans_total[5m])) + sum by (job, instance) (rate(otelcol_receiver_refused_metric_points_total[5m])) + sum by (job, instance) (rate(otelcol_receiver_refused_log_records_total[5m]))) or (sum by (job, instance) (up{job=~\"otel-collector.*\"}) * 0)",
+              "legendFormat": "{{job}} / {{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "id": 3,
+          "title": "Collector Queue Saturation (%)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "(otelcol_exporter_queue_size / otelcol_exporter_queue_capacity) * 100",
+              "legendFormat": "{{job}} / {{instance}} - {{exporter}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "id": 4,
+          "title": "Collector Instance Health (UP == 1)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "up{job=~\"otel-collector.*\"}",
+              "legendFormat": "{{job}} / {{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "max": 1.5,
+              "custom": {
+                "fillOpacity": 20
+              }
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "id": 5,
+          "title": "Ingested Telemetry Volume (Items / sec)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (rate(otelcol_receiver_accepted_metric_points_total[5m]) + rate(otelcol_receiver_accepted_log_records_total[5m]) + rate(otelcol_receiver_accepted_spans_total[5m]))",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "id": 6,
+          "title": "Exporter Sent Volume (Items / sec)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job, exporter) (rate(otelcol_exporter_sent_metric_points_total[5m]) + rate(otelcol_exporter_sent_log_records_total[5m]) + rate(otelcol_exporter_sent_spans_total[5m]))",
+              "legendFormat": "{{job}} - {{exporter}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            }
+          }
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "tags": [
+        "observability",
+        "meta-monitoring"
+      ],
+      "templating": {
+        "list": []
+      },
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "title": "Meta-Monitoring: OTel Pipeline",
+      "uid": "otel-meta-monitoring",
+      "version": 3
+    }

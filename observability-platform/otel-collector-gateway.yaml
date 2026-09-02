@@ -12,7 +12,7 @@ spec:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilization: 80
-  image: otel/opentelemetry-collector-contrib:0.156.0
+  image: otel/opentelemetry-collector-contrib:0.159.0
   
   # Without an explicit request the operator creates the pods with none, so the
   # scheduler treats two gateway replicas as free and the HPA has no CPU
@@ -29,6 +29,13 @@ spec:
       value: "200MiB"
     - name: GOGC
       value: "80"
+  nodeSelector:
+    dedicated: monitoring
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
   config:
     extensions:
       health_check:
@@ -119,6 +126,39 @@ spec:
           exporters: [loadbalancing/metrics-logs]
 ---
 # ==============================================================================
+# Tier 2: In-Cluster ClusterIP Service with Topology-Aware Routing (K8s 1.35+)
+# Ensures node-local Tier 1 agents route to same-AZ Tier 2 router replicas
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector-tier2-router-collector
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: otel-collector-tier2-router-collector
+    app.kubernetes.io/component: opentelemetry-collector
+spec:
+  type: ClusterIP
+  # Native Kubernetes 1.30+ / 1.35 Topology-Aware Routing
+  trafficDistribution: PreferSameZone
+  selector:
+    app.kubernetes.io/name: otel-collector-tier2-router-collector
+    app.kubernetes.io/managed-by: opentelemetry-operator
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+    - name: metrics
+      port: 8888
+      targetPort: 8888
+      protocol: TCP
+---
+# ==============================================================================
 # Tier 3: Stateful Processing Gateway (Tail Sampling & Backend Ingestion)
 # ==============================================================================
 apiVersion: opentelemetry.io/v1beta1
@@ -149,13 +189,20 @@ spec:
       value: "800MiB"
     - name: GOGC
       value: "80"
+  nodeSelector:
+    dedicated: monitoring
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
   config:
     extensions:
       health_check:
         endpoint: "0.0.0.0:13133"
-      sigv4auth:
-        region: "us-east-1"
-        service: "aps"
+      # sigv4auth:
+      #   region: "us-east-1"
+      #   service: "aps"
     receivers:
       # Internal receiver for load-balanced traffic from Tier 2 Router
       otlp/internal:
@@ -173,6 +220,38 @@ spec:
               scrape_interval: 15s
               static_configs:
                 - targets: ['127.0.0.1:8889']
+            - job_name: 'loki'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['loki.monitoring.svc.cluster.local:3100']
+            - job_name: 'tempo'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['tempo.monitoring.svc.cluster.local:3200']
+            - job_name: 'mimir'
+              scrape_interval: 15s
+              static_configs:
+                - targets:
+                    - 'mimir-distributor.monitoring.svc.cluster.local:8080'
+                    - 'mimir-ingester.monitoring.svc.cluster.local:8080'
+                    - 'mimir-querier.monitoring.svc.cluster.local:8080'
+                    - 'mimir-query-frontend.monitoring.svc.cluster.local:8080'
+                    - 'mimir-ruler.monitoring.svc.cluster.local:8080'
+                    - 'mimir-alertmanager.monitoring.svc.cluster.local:8080'
+                    - 'mimir-compactor.monitoring.svc.cluster.local:8080'
+                    - 'mimir-store-gateway.monitoring.svc.cluster.local:8080'
+            - job_name: 'grafana'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['grafana.monitoring.svc.cluster.local:80']
+            - job_name: 'kube-state-metrics'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['kube-state-metrics.monitoring.svc.cluster.local:8080']
+            - job_name: 'node-exporter'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['node-exporter.monitoring.svc.cluster.local:9100']
     processors:
       # Filter processor to discard noisy low-level HTTP transport spans
       filter/drop_noisy_asgi:
@@ -244,13 +323,13 @@ spec:
               - delete_key(attributes, "http.target")
 
     exporters:
-      # Pushes metrics to Amazon Managed Prometheus (AMP) via AWS SigV4
-      prometheusremotewrite/amp:
-        endpoint: "${env:AMP_ENDPOINT}"
-        auth:
-          authenticator: sigv4auth
+      # Pushes metrics to Amazon Managed Prometheus (AMP) via AWS SigV4 (uncomment if using AMP)
+      # prometheusremotewrite/amp:
+      #   endpoint: "${env:AMP_ENDPOINT}"
+      #   auth:
+      #     authenticator: sigv4auth
 
-      # Pushes metrics to Mimir via Prometheus remote write HTTP API (Fallback)
+      # Pushes metrics to Mimir via Prometheus remote write HTTP API (Default)
       prometheusremotewrite:
         endpoint: "http://mimir-gateway.monitoring.svc.cluster.local/api/v1/push"
         tls:
@@ -263,9 +342,9 @@ spec:
         tls:
           insecure: true
 
-      # Optional AWS X-Ray exporter for CloudWatch traces
-      awsxray:
-        region: "us-east-1"
+      # Optional AWS X-Ray exporter for CloudWatch traces (uncomment if using X-Ray)
+      # awsxray:
+      #   region: "us-east-1"
 
       # Optional Kafka log buffer with LZ4 compression for ultra-fast Logstash decompression
       # Re-enable when deploying the enterprise ELK analytics tier.
@@ -292,7 +371,8 @@ spec:
           insecure: true
 
     service:
-      extensions: [health_check, sigv4auth]
+      # Use [health_check] for self-hosted Mimir (default). Add sigv4auth if exporting to Amazon Managed Prometheus.
+      extensions: [health_check]
       telemetry:
         metrics:
           readers:

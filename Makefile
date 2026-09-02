@@ -42,6 +42,8 @@ help: ## Show this help message
 	@echo "  k8s-deploy-otel      Apply dashboards, Gateway, and LB Services to the observability cluster"
 	@echo "  k8s-deploy-apps      Apply DaemonSet, Instrumentation, and apps (to $(TARGET_APPS_CLUSTER))"
 	@echo "  k8s-deploy-samples   Deploy uninstrumented NGINX & standalone Bookinfo microservices"
+	@echo "  k8s-benchmark-start  Start high-throughput traffic generators (telemetrygen & HTTP stressor)"
+	@echo "  k8s-benchmark-stop   Stop synthetic benchmark traffic generators"
 	@echo "  k8s-undeploy-all     Remove manifests from cluster(s)"
 	@echo ""
 	@echo "Access & Verification:"
@@ -169,8 +171,8 @@ k8s-deploy-otel:
 	@echo "Waiting for Grafana in $(OTEL_CLUSTER)..."
 	@echo "  (Loki/Tempo/Mimir/Grafana are installed by Terraform — run 'make k8s-create-helm' if this times out)"
 	kubectl --context $(OTEL_CLUSTER) wait --for=condition=Available --timeout=600s deployment/grafana -n monitoring
-	@echo "Applying golden-signals dashboards in $(OTEL_CLUSTER)..."
-	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/grafana-dashboards-configmap.yaml
+	@echo "Applying dashboards from grafana-dashboards/ in $(OTEL_CLUSTER)..."
+	kubectl --context $(OTEL_CLUSTER) apply --server-side --force-conflicts -f $(OBS_MANIFEST_DIR)/grafana-dashboards/
 	@echo "Applying Mimir Ruler SLO alert rules in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/mimir-ruler-rules-configmap.yaml
 	@echo "Applying Alert Sink in $(OTEL_CLUSTER)..."
@@ -269,8 +271,16 @@ k8s-undeploy-samples: ## Remove sample workloads
 	@echo "Removing sample workloads from $(TARGET_APPS_CLUSTER)..."
 	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/samples/ --ignore-not-found=true
 
+k8s-benchmark-start: ## Start synthetic high-throughput traffic generators (telemetrygen & HTTP stressor)
+	@echo "Starting high-throughput traffic generators (telemetrygen & HTTP stressor)..."
+	kubectl --context $(TARGET_APPS_CLUSTER) apply -f workloads/benchmarks/load-generator.yaml
+
+k8s-benchmark-stop: ## Stop synthetic benchmark traffic generators
+	@echo "Stopping benchmark traffic generators..."
+	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/benchmarks/load-generator.yaml --ignore-not-found=true
+
 # Workload manifests and platform manifests teardown
-k8s-undeploy-all: k8s-undeploy-samples
+k8s-undeploy-all: k8s-undeploy-samples k8s-benchmark-stop
 	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/otel-collector-daemonset.yaml --ignore-not-found=true
 	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/golang-app/golang-product-service.yaml --ignore-not-found=true
 	kubectl --context $(TARGET_APPS_CLUSTER) delete -f workloads/golang-app/app-ingress.yaml --ignore-not-found=true

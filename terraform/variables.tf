@@ -11,7 +11,7 @@ variable "aws_region" {
 variable "cluster_name" {
   description = "Name of the unified EKS cluster"
   type        = string
-  default     = "app-workloads-and-observability-cluster"
+  default     = "observability-cluster"
 }
 
 variable "deploy_observability_stack" {

@@ -19,6 +19,9 @@ spec:
   hostNetwork: true
   dnsPolicy: ClusterFirstWithHostNet
 
+  tolerations:
+    - operator: "Exists"
+
   resources:
     requests:
       cpu: 100m
@@ -63,6 +66,10 @@ spec:
               scrape_interval: 15s
               static_configs:
                 - targets: ['127.0.0.1:8888']
+            - job_name: 'node-exporter'
+              scrape_interval: 15s
+              static_configs:
+                - targets: ['127.0.0.1:9100']
 
       filelog:
         include:
@@ -157,7 +164,7 @@ spec:
     exporters:
       # Forwards telemetry directly to the Tier 2 gateway router (ClusterIP in single-cluster, NLB in multi-cluster).
       otlp:
-        endpoint: <OTEL_GATEWAY_LB_HOST>:4317
+        endpoint: otel-collector-tier2-router-collector.monitoring.svc.cluster.local:4317
         compression: zstd
         tls:
           insecure: true
@@ -252,6 +259,8 @@ spec:
       # of a second, uncorrelated export path straight to the gateway.
       hostNetwork: true
       serviceAccountName: obi-agent
+      tolerations:
+        - operator: "Exists"
       containers:
         - name: obi
           image: otel/ebpf-instrument:v0.12.2

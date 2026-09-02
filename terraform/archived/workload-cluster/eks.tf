@@ -96,6 +96,10 @@ module "eks" {
       most_recent                 = true
       resolve_conflicts_on_create = "OVERWRITE"
       resolve_conflicts_on_update = "OVERWRITE"
+      # Fixes the port 10251 FailedDiscoveryCheck error
+      configuration_values = jsonencode({
+        containerPort = 4443
+      })
     }
   }
 

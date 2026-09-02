@@ -32,3 +32,51 @@ spec:
     consolidationPolicy: WhenEmptyOrUnderutilized
     consolidateAfter: 30s
     expireAfter: 720h
+---
+# ==============================================================================
+# Dedicated NodePool for Observability & Monitoring Workloads
+# Isolated with taints/tolerations to prevent noisy neighbor contention with apps
+# ==============================================================================
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: monitoring
+spec:
+  template:
+    metadata:
+      labels:
+        workload-type: monitoring
+        dedicated: monitoring
+    spec:
+      # Taint nodes so only observability workloads with matching tolerations run here
+      taints:
+        - key: dedicated
+          value: monitoring
+          effect: NoSchedule
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+            {{- if .Values.enableSpot }}
+            - "spot"
+            - "on-demand"
+            {{- else }}
+            - "on-demand"
+            {{- end }}
+        - key: "karpenter.k8s.aws/instance-category"
+          operator: In
+          values: ["m", "r", "c"]
+        - key: "karpenter.k8s.aws/instance-generation"
+          operator: Gt
+          values: ["2"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+  limits:
+    cpu: "{{ .Values.cpuLimit }}"
+    memory: "{{ .Values.memoryLimit }}"
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 30s
+    expireAfter: 720h

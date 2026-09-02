@@ -22,6 +22,15 @@ resources:
 persistence:
   enabled: false
 
+nodeSelector:
+  dedicated: monitoring
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: monitoring
+    effect: NoSchedule
+
 # Picks up any ConfigMap in the namespace labelled `grafana_dashboard: "1"`.
 # The sidecar writes its own dashboard provider file, so the repo must NOT ship
 # a provider ConfigMap carrying that label — it would be dropped into the

@@ -72,6 +72,13 @@ singleBinary:
       memory: 256Mi
     limits:
       memory: 512Mi
+  nodeSelector:
+    dedicated: monitoring
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
 
 # Simple-Scalable components — unused in SingleBinary mode.
 read:

@@ -27,8 +27,9 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 20.0"
 
-  cluster_name    = var.cluster_name
-  cluster_version = "1.35"
+  cluster_name             = var.cluster_name
+  cluster_version          = "1.35"
+  iam_role_use_name_prefix = false
 
   # Nodes are launched into private subnets and need NAT egress during bootstrap
   # for nodeadm, EC2 API calls, EKS registration, image pulls, and add-ons.

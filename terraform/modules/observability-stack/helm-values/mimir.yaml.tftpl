@@ -38,6 +38,15 @@
 #    Service, so the ruler finds the alertmanager below for free.
 # ==============================================================================
 
+global:
+  nodeSelector:
+    dedicated: monitoring
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
+
 # --- Components we do not run in the demo -------------------------------------
 kafka:
   enabled: false

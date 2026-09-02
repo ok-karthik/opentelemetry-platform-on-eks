@@ -61,3 +61,12 @@ persistence:
   enabled: true
   size: 10Gi
   storageClassName: gp3
+
+nodeSelector:
+  dedicated: monitoring
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: monitoring
+    effect: NoSchedule
