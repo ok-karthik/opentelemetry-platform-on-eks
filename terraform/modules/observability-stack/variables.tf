@@ -34,5 +34,11 @@ variable "deploy_opensearch_stack" {
 variable "use_amazon_managed_prometheus" {
   description = "Whether to use Amazon Managed Service for Prometheus (AMP) for metrics instead of self-hosting Mimir"
   type        = bool
-  default     = true
+  default     = false
+}
+
+variable "use_amazon_managed_grafana" {
+  description = "Whether to use Amazon Managed Grafana (AMG) workspace instead of deploying self-hosted Grafana in-cluster"
+  type        = bool
+  default     = false
 }

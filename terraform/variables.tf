@@ -32,6 +32,12 @@ variable "use_amazon_managed_prometheus" {
   default     = false
 }
 
+variable "use_amazon_managed_grafana" {
+  description = "Whether to use Amazon Managed Grafana (AMG) workspace instead of deploying self-hosted Grafana in-cluster"
+  type        = bool
+  default     = false
+}
+
 variable "node_group_capacity_type" {
   description = "Pricing model for EKS worker nodes (SPOT or ON_DEMAND)"
   type        = string

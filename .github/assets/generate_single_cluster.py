@@ -1,9 +1,8 @@
 from diagrams.k8s.compute import StatefulSet
 import os
 from diagrams import Cluster, Diagram, Edge
-from diagrams.aws.management import Cloudwatch
 from diagrams.k8s.compute import DaemonSet, Deployment, Pod
-from diagrams.onprem.monitoring import Grafana
+from diagrams.onprem.monitoring import Grafana, Prometheus
 from diagrams.onprem.logging import Loki
 from diagrams.onprem.tracing import Tempo
 
@@ -61,10 +60,10 @@ with Diagram(
                     processor = StatefulSet("Tier 3: Stateful Processor\n(StatefulSet + Tail Sampling)")
 
         # Storage Backends
-        with Cluster("Storage Backends (S3 & Serverless)", graph_attr={"fontsize": "15", "margin": "25"}):
-            tempo = Tempo("Grafana Tempo\n(S3 Traces)")
-            loki = Loki("Grafana Loki\n(S3 Logs)")
-            amp = Cloudwatch("Amazon Managed\nPrometheus (AMP)")
+        with Cluster("Storage Backends (S3 & Prometheus)", graph_attr={"fontsize": "15", "margin": "25"}):
+            tempo = Tempo("Grafana Tempo\n(Traces in S3)")
+            loki = Loki("Grafana Loki\n(Logs in S3)")
+            mimir_prom = Prometheus("Mimir / Prometheus\n(Metrics in S3/AMP)")
 
         grafana = Grafana("Grafana UI\n(Unified Single-Pane)")
 
@@ -98,9 +97,9 @@ with Diagram(
     # Egress to Storage Backends
     processor >> Edge(color="royalblue", label="OTLP (zstd)") >> tempo
     processor >> Edge(color="firebrick", label="Native OTLP") >> loki
-    processor >> Edge(color="darkorange", label="SigV4 Remote Write") >> amp
+    processor >> Edge(color="darkorange", label="Remote Write") >> mimir_prom
 
     # The Reverse Edge Trick (UI Queries)
-    amp >> Edge(dir="back", color="darkorange", label="SigV4 PromQL") >> grafana
+    mimir_prom >> Edge(dir="back", color="darkorange", label="PromQL") >> grafana
     loki >> Edge(dir="back", color="firebrick", label="LogQL") >> grafana
     tempo >> Edge(dir="back", color="royalblue", label="TraceQL") >> grafana

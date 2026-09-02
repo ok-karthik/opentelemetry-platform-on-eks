@@ -101,7 +101,7 @@ resource "helm_release" "mimir" {
 # 4. Grafana — 1 pod
 # ------------------------------------------------------------------------------
 resource "helm_release" "grafana" {
-  count = var.deploy_observability_stack ? 1 : 0
+  count = (var.deploy_observability_stack && !var.use_amazon_managed_grafana) ? 1 : 0
 
   name             = "grafana"
   repository       = "https://grafana.github.io/helm-charts"
