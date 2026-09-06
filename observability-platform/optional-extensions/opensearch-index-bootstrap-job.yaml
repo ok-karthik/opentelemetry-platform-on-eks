@@ -32,7 +32,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: opensearch-index-bootstrap
-  namespace: monitoring
+  namespace: observability
 spec:
   backoffLimit: 6
   template:
@@ -46,7 +46,7 @@ spec:
             - -c
             - |
               set -eu
-              OS="http://opensearch-cluster-master.monitoring.svc.cluster.local:9200"
+              OS="http://opensearch-cluster-master.observability.svc.cluster.local.:9200"
 
               echo "Waiting for OpenSearch..."
               until curl -sf "$OS/_cluster/health"; do sleep 5; done

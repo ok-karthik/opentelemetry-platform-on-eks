@@ -8,7 +8,7 @@ spec:
   # Tells injected OTel SDKs where to send telemetry.
   # Workloads target their node-local collector via Downward API (status.hostIP:4317).
   exporter:
-    endpoint: http://otel-collector-agent-collector.monitoring.svc.cluster.local:4317
+    endpoint: http://otel-collector-agent-collector.observability.svc.cluster.local.:4317
 
   # ==================== Propagator Configuration ====================
   propagators:

@@ -25,7 +25,7 @@ resource "helm_release" "loki" {
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "loki"
   version          = local.chart_versions.loki
-  namespace        = "monitoring"
+  namespace        = "observability"
   create_namespace = true
 
   wait    = true
@@ -53,7 +53,7 @@ resource "helm_release" "tempo" {
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "tempo"
   version          = local.chart_versions.tempo
-  namespace        = "monitoring"
+  namespace        = "observability"
   create_namespace = true
 
   wait    = true
@@ -81,7 +81,7 @@ resource "helm_release" "mimir" {
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "mimir-distributed"
   version          = local.chart_versions.mimir
-  namespace        = "monitoring"
+  namespace        = "observability"
   create_namespace = true
 
   wait    = true
@@ -107,7 +107,7 @@ resource "helm_release" "grafana" {
   repository       = "https://grafana.github.io/helm-charts"
   chart            = "grafana"
   version          = local.chart_versions.grafana
-  namespace        = "monitoring"
+  namespace        = "observability"
   create_namespace = true
 
   wait    = true
@@ -141,7 +141,7 @@ resource "helm_release" "opensearch" {
   repository       = "https://opensearch-project.github.io/helm-charts/"
   chart            = "opensearch"
   version          = local.chart_versions.opensearch
-  namespace        = "monitoring"
+  namespace        = "observability"
   create_namespace = true
 
   wait    = true
@@ -162,7 +162,7 @@ resource "helm_release" "opensearch_dashboards" {
   repository = "https://opensearch-project.github.io/helm-charts/"
   chart      = "opensearch-dashboards"
   version    = local.chart_versions.opensearch_dashboards
-  namespace  = "monitoring"
+  namespace  = "observability"
 
   wait    = true
   timeout = 300
@@ -186,7 +186,7 @@ resource "helm_release" "logstash" {
   repository = "https://helm.elastic.co"
   chart      = "logstash"
   version    = local.chart_versions.logstash
-  namespace  = "monitoring"
+  namespace  = "observability"
 
   wait    = true
   timeout = 300

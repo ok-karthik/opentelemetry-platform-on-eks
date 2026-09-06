@@ -1,13 +1,13 @@
 # Stand-in for a real on-call destination (Slack/PagerDuty/Opsgenie). Logs
 # every request body it receives, so a fired burn-rate alert is verifiable
-# with `kubectl logs -n monitoring -l app=alert-sink` instead of trusting that
+# with `kubectl logs -n observability -l app=alert-sink` instead of trusting that
 # Alertmanager sent something. See the fallbackConfig comment in
 # mimir.yaml.tftpl for how to swap this for a real receiver.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: alert-sink
-  namespace: monitoring
+  namespace: observability
   labels:
     app: alert-sink
 spec:
@@ -39,7 +39,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: alert-sink
-  namespace: monitoring
+  namespace: observability
 spec:
   selector:
     app: alert-sink

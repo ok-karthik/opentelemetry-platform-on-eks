@@ -17,7 +17,7 @@ spec:
   # python-product-info-service.yaml, which keeps k8sattributes enrichment
   # working; this Service target round-robins across nodes.
   exporter:
-    endpoint: http://otel-collector-agent-collector.monitoring.svc.cluster.local:4317
+    endpoint: http://otel-collector-agent-collector.observability.svc.cluster.local.:4317
 
   # ==================== Propagator Configuration ====================
   # Configures how trace context is injected/extracted across HTTP headers.

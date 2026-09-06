@@ -82,7 +82,7 @@ resource "aws_iam_role_policy_attachment" "otel_gateway_attach" {
 resource "aws_eks_pod_identity_association" "otel_gateway_tier3" {
   count           = var.use_amazon_managed_prometheus ? 1 : 0
   cluster_name    = var.cluster_name
-  namespace       = "monitoring"
+  namespace       = "observability"
   service_account = "otel-collector-tier3-processor-collector"
   role_arn        = aws_iam_role.otel_gateway[0].arn
 }
@@ -124,7 +124,7 @@ resource "aws_iam_role_policy_attachment" "grafana_amp_query_attach" {
 resource "aws_eks_pod_identity_association" "grafana" {
   count           = var.use_amazon_managed_prometheus ? 1 : 0
   cluster_name    = var.cluster_name
-  namespace       = "monitoring"
+  namespace       = "observability"
   service_account = "grafana"
   role_arn        = aws_iam_role.grafana_stack.arn
 }

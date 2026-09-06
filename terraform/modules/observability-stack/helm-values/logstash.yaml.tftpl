@@ -41,7 +41,7 @@ logstashPipeline:
   otel-logs.conf: |
     input {
       kafka {
-        bootstrap_servers => "kafka.monitoring.svc.cluster.local:9092"
+        bootstrap_servers => "kafka.observability.svc.cluster.local.:9092"
         topics => ["otel-logs-buffer"]
         codec => json
         group_id => "logstash-otel-logs"

@@ -2,7 +2,7 @@ apiVersion: opentelemetry.io/v1beta1
 kind: OpenTelemetryCollector
 metadata:
   name: otel-collector-tier1-agent
-  namespace: monitoring
+  namespace: observability
 spec:
   mode: daemonset
   # Pinned to contrib explicitly. The OTel Operator's default collector image is
@@ -164,7 +164,7 @@ spec:
     exporters:
       # Forwards telemetry directly to the Tier 2 gateway router (ClusterIP in single-cluster, NLB in multi-cluster).
       otlp:
-        endpoint: otel-collector-tier2-router-collector.monitoring.svc.cluster.local:4317
+        endpoint: otel-collector-tier2-router-collector.observability.svc.cluster.local.:4317
         compression: zstd
         tls:
           insecure: true
@@ -221,7 +221,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: otel-collector-tier1-agent-collector
-    namespace: monitoring
+    namespace: observability
 ---
 # [ENTERPRISE PATTERN: OpenTelemetry eBPF Instrumentation (OBI)]
 # Zero-code RED metrics and traces captured straight from the kernel, for
@@ -235,7 +235,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: obi-agent
-  namespace: monitoring
+  namespace: observability
   labels:
     app: obi-agent
 spec:
@@ -307,7 +307,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: obi-agent
-  namespace: monitoring
+  namespace: observability
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -332,4 +332,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: obi-agent
-    namespace: monitoring
+    namespace: observability

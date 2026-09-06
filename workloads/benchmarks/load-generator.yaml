@@ -39,19 +39,19 @@ spec:
               while true; do
                 # 1. Primary Go Microservice (calls Python product-info via distributed trace context)
                 for i in $(seq 1 15); do
-                  curl -s -o /dev/null -w "Go App: %{http_code}\n" http://golang-app.default.svc.cluster.local:8080/product &
-                  curl -s -o /dev/null -w "Python App: %{http_code}\n" http://python-app.default.svc.cluster.local:8001/product-info &
+                  curl -s -o /dev/null -w "Go App: %{http_code}\n" http://golang-app.default.svc.cluster.local.:8080/product &
+                  curl -s -o /dev/null -w "Python App: %{http_code}\n" http://python-app.default.svc.cluster.local.:8001/product-info &
                 done
 
                 # 2. Uninstrumented NGINX (Level 1 Kernel eBPF OBI)
                 for i in $(seq 1 5); do
-                  curl -s -o /dev/null -w "NGINX 200: %{http_code}\n" http://uninstrumented-nginx.default.svc.cluster.local/ &
+                  curl -s -o /dev/null -w "NGINX 200: %{http_code}\n" http://uninstrumented-nginx.default.svc.cluster.local./ &
                 done
-                curl -s -o /dev/null -w "NGINX 404: %{http_code}\n" http://uninstrumented-nginx.default.svc.cluster.local/not-found &
+                curl -s -o /dev/null -w "NGINX 404: %{http_code}\n" http://uninstrumented-nginx.default.svc.cluster.local./not-found &
 
                 # 3. Istio Bookinfo Polyglot (productpage -> details/reviews -> ratings)
                 for i in $(seq 1 5); do
-                  curl -s -o /dev/null -w "Bookinfo: %{http_code}\n" http://productpage.default.svc.cluster.local:9080/productpage &
+                  curl -s -o /dev/null -w "Bookinfo: %{http_code}\n" http://productpage.default.svc.cluster.local.:9080/productpage &
                 done
 
                 wait

@@ -20,7 +20,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: mimir-ruler-rules
-  namespace: monitoring
+  namespace: observability
 data:
   golang-product-service.yaml: |
     groups:

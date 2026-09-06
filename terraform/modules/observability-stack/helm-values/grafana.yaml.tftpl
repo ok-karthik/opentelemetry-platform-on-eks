@@ -36,7 +36,7 @@ sidecar:
     label: grafana_dashboard
     labelValue: "1"
     folder: /tmp/dashboards
-    searchNamespace: monitoring
+    searchNamespace: observability
   datasources:
     enabled: false
 
@@ -68,7 +68,7 @@ datasources:
         type: prometheus
         uid: prometheus
         access: proxy
-        url: http://mimir-gateway.monitoring.svc.cluster.local/prometheus
+        url: http://mimir-gateway.observability.svc.cluster.local./prometheus
         isDefault: true
         jsonData:
           httpMethod: POST
@@ -79,7 +79,7 @@ datasources:
         type: loki
         uid: loki
         access: proxy
-        url: http://loki.monitoring.svc.cluster.local:3100
+        url: http://loki.observability.svc.cluster.local.:3100
         jsonData:
           # Turns the trace_id printed in application logs into a clickable
           # link through to the Tempo trace view.
@@ -93,7 +93,7 @@ datasources:
         type: tempo
         uid: tempo
         access: proxy
-        url: http://tempo.monitoring.svc.cluster.local:3200
+        url: http://tempo.observability.svc.cluster.local.:3200
         jsonData:
           tracesToLogsV2:
             datasourceUid: loki

@@ -72,7 +72,7 @@ processors:
 
 exporters:
   otlp/tempo:
-    endpoint: "tempo.monitoring.svc.cluster.local:4317"
+    endpoint: "tempo.observability.svc.cluster.local:4317"
     compression: gzip
     tls:
       insecure: true

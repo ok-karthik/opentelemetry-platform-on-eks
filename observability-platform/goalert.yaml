@@ -18,7 +18,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: goalert-db-credentials
-  namespace: monitoring
+  namespace: observability
 type: Opaque
 stringData:
   # Demo-only credential, matches this platform's existing posture (tls.insecure
@@ -33,7 +33,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: goalert-postgres
-  namespace: monitoring
+  namespace: observability
 spec:
   selector:
     app: goalert-postgres
@@ -45,7 +45,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: goalert-postgres
-  namespace: monitoring
+  namespace: observability
 spec:
   serviceName: goalert-postgres
   replicas: 1
@@ -104,7 +104,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: goalert
-  namespace: monitoring
+  namespace: observability
   labels:
     app: goalert
 spec:
@@ -161,7 +161,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: goalert
-  namespace: monitoring
+  namespace: observability
 spec:
   selector:
     app: goalert
@@ -175,13 +175,13 @@ spec:
 # policy / integration key are account state, not config):
 #
 # 1. Create the initial admin user:
-#      kubectl exec -n monitoring deploy/goalert -- \
+#      kubectl exec -n observability deploy/goalert -- \
 #        goalert add-user --db-url "$GOALERT_DB_URL" \
 #        --admin --user admin --email admin@example.com
 #    (prompts for a password interactively)
 #
 # 2. Port-forward and log in:
-#      kubectl port-forward -n monitoring svc/goalert 8081:8081
+#      kubectl port-forward -n observability svc/goalert 8081:8081
 #    Open http://localhost:8081, log in as admin, use the Setup Wizard
 #    (left sidebar) to create a service, escalation policy, schedule, and a
 #    "Generic API" integration on that service. Copy the integration key.
@@ -189,6 +189,6 @@ spec:
 # 3. Wire it to Alertmanager: put the key into the GoAlert receiver's
 #    webhook URL in opentelemetry-platform-on-eks's
 #    terraform/modules/observability-stack/helm-values/mimir.yaml.tftpl
-#    (`http://goalert.monitoring.svc.cluster.local:8081/api/v2/generic/incoming?token=<key>`),
+#    (`http://goalert.observability.svc.cluster.local:8081/api/v2/generic/incoming?token=<key>`),
 #    then re-run the Helm stage (`make k8s-create-helm`).
 # ==============================================================================

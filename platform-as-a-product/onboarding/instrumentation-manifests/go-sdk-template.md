@@ -5,7 +5,7 @@ Go services normally use an SDK bootstrap package instead of OTel Operator runti
 Minimum contract:
 
 ```text
-OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector-agent-collector.monitoring.svc.cluster.local:4317
+OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector-agent-collector.observability.svc.cluster.local:4317
 OTEL_RESOURCE_ATTRIBUTES=service.name=<name>,service.namespace=<namespace>,service.version=<version>,deployment.environment=<env>,team=<team>,tenant.id=<tenant>
 ```
 

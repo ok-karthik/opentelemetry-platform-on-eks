@@ -5,7 +5,7 @@ apiVersion: opentelemetry.io/v1beta1
 kind: OpenTelemetryCollector
 metadata:
   name: otel-collector-tier2-router
-  namespace: monitoring
+  namespace: observability
 spec:
   mode: deployment
   autoscaler:
@@ -128,7 +128,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: otel-collector-tier2-router-collector
-  namespace: monitoring
+  namespace: observability
   labels:
     app.kubernetes.io/name: otel-collector-tier2-router-collector
     app.kubernetes.io/component: opentelemetry-collector
@@ -160,7 +160,7 @@ apiVersion: opentelemetry.io/v1beta1
 kind: OpenTelemetryCollector
 metadata:
   name: otel-collector-tier3-processor
-  namespace: monitoring
+  namespace: observability
 spec:
   # StatefulSet mode provides a stable headless service and sticky identity for the router
   mode: statefulset
@@ -205,7 +205,7 @@ spec:
             - job_name: 'otel-collector-tier2-router'
               scrape_interval: 15s
               static_configs:
-                - targets: ['otel-collector-tier2-router-collector-monitoring:8888']
+                - targets: ['otel-collector-tier2-router-collector.observability.svc.cluster.local.:8888']
             - job_name: 'otel-collector-tier3-processor'
               scrape_interval: 15s
               static_configs:
@@ -213,35 +213,35 @@ spec:
             - job_name: 'loki'
               scrape_interval: 15s
               static_configs:
-                - targets: ['loki.monitoring.svc.cluster.local:3100']
+                - targets: ['loki.observability.svc.cluster.local.:3100']
             - job_name: 'tempo'
               scrape_interval: 15s
               static_configs:
-                - targets: ['tempo.monitoring.svc.cluster.local:3200']
+                - targets: ['tempo.observability.svc.cluster.local.:3200']
             - job_name: 'mimir'
               scrape_interval: 15s
               static_configs:
                 - targets:
-                    - 'mimir-distributor.monitoring.svc.cluster.local:8080'
-                    - 'mimir-ingester.monitoring.svc.cluster.local:8080'
-                    - 'mimir-querier.monitoring.svc.cluster.local:8080'
-                    - 'mimir-query-frontend.monitoring.svc.cluster.local:8080'
-                    - 'mimir-ruler.monitoring.svc.cluster.local:8080'
-                    - 'mimir-alertmanager.monitoring.svc.cluster.local:8080'
-                    - 'mimir-compactor.monitoring.svc.cluster.local:8080'
-                    - 'mimir-store-gateway.monitoring.svc.cluster.local:8080'
+                    - 'mimir-distributor.observability.svc.cluster.local.:8080'
+                    - 'mimir-ingester.observability.svc.cluster.local.:8080'
+                    - 'mimir-querier.observability.svc.cluster.local.:8080'
+                    - 'mimir-query-frontend.observability.svc.cluster.local.:8080'
+                    - 'mimir-ruler.observability.svc.cluster.local.:8080'
+                    - 'mimir-alertmanager.observability.svc.cluster.local.:8080'
+                    - 'mimir-compactor.observability.svc.cluster.local.:8080'
+                    - 'mimir-store-gateway.observability.svc.cluster.local.:8080'
             - job_name: 'grafana'
               scrape_interval: 15s
               static_configs:
-                - targets: ['grafana.monitoring.svc.cluster.local:80']
+                - targets: ['grafana.observability.svc.cluster.local.:80']
             - job_name: 'kube-state-metrics'
               scrape_interval: 15s
               static_configs:
-                - targets: ['kube-state-metrics.monitoring.svc.cluster.local:8080']
+                - targets: ['kube-state-metrics.observability.svc.cluster.local.:8080']
             - job_name: 'node-exporter'
               scrape_interval: 15s
               static_configs:
-                - targets: ['node-exporter.monitoring.svc.cluster.local:9100']
+                - targets: ['node-exporter.observability.svc.cluster.local.:9100']
     processors:
       # Filter processor to discard noisy low-level HTTP transport spans
       filter/drop_noisy_asgi:
@@ -321,13 +321,13 @@ spec:
 
       # Pushes metrics to Mimir via Prometheus remote write HTTP API (Default)
       prometheusremotewrite:
-        endpoint: "http://mimir-gateway.monitoring.svc.cluster.local/api/v1/push"
+        endpoint: "http://mimir-gateway.observability.svc.cluster.local./api/v1/push"
         tls:
           insecure: true
       
       # Pushes traces to Tempo with zstd compression
       otlp/tempo:
-        endpoint: "tempo.monitoring.svc.cluster.local:4317"
+        endpoint: "tempo.observability.svc.cluster.local.:4317"
         compression: zstd
         tls:
           insecure: true
@@ -340,7 +340,7 @@ spec:
       # Re-enable when deploying the enterprise ELK analytics tier.
       # kafka/logs:
       #   brokers:
-      #     - "kafka.monitoring.svc.cluster.local:9092"
+      #     - "kafka.observability.svc.cluster.local.:9092"
       #   protocol_version: "2.0.0"
       #   topic: "otel-logs-buffer"
       #   encoding: otlp_json
@@ -356,7 +356,7 @@ spec:
       # The `loki-gateway` service no longer exists either: the chart's nginx
       # gateway is disabled, so writes go straight to the single-binary pod.
       otlphttp/loki:
-        endpoint: "http://loki.monitoring.svc.cluster.local:3100/otlp"
+        endpoint: "http://loki.observability.svc.cluster.local.:3100/otlp"
         tls:
           insecure: true
 
@@ -418,7 +418,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: otel-collector-tier2-router-collector
-    namespace: monitoring
+    namespace: observability
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -431,4 +431,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: otel-collector-tier3-processor-collector
-    namespace: monitoring
+    namespace: observability

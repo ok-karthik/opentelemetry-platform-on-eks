@@ -196,10 +196,10 @@ k8s-deploy-otel:
 	@echo "Waiting for OTel Operator in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) wait --for=condition=Available --timeout=300s deployment/opentelemetry-operator -n opentelemetry-operator-system
 	@echo "Applying Namespace in $(OTEL_CLUSTER)..."
-	kubectl --context $(OTEL_CLUSTER) create namespace monitoring --dry-run=client -o yaml | kubectl --context $(OTEL_CLUSTER) apply -f -
+	kubectl --context $(OTEL_CLUSTER) create namespace observability --dry-run=client -o yaml | kubectl --context $(OTEL_CLUSTER) apply -f -
 	@echo "Waiting for Grafana in $(OTEL_CLUSTER)..."
 	@echo "  (Loki/Tempo/Mimir/Grafana are installed by Terraform — run 'make k8s-create-helm' if this times out)"
-	kubectl --context $(OTEL_CLUSTER) wait --for=condition=Available --timeout=600s deployment/grafana -n monitoring
+	kubectl --context $(OTEL_CLUSTER) wait --for=condition=Available --timeout=600s deployment/grafana -n observability
 	@echo "Applying dashboards from grafana-dashboards/ in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply --server-side --force-conflicts -f $(OBS_MANIFEST_DIR)/grafana-dashboards/
 	@echo "Applying Mimir Ruler SLO alert rules in $(OTEL_CLUSTER)..."
@@ -214,12 +214,12 @@ k8s-deploy-otel:
 	@WS_ID=$$(aws amp list-workspaces --region $(AWS_REGION) --query 'workspaces[?alias==`$(OTEL_CLUSTER)-amp`].workspaceId | [0]' --output text 2>/dev/null); \
 	if [ -n "$$WS_ID" ] && [ "$$WS_ID" != "None" ]; then \
 	  AMP_EP=$$(aws amp describe-workspace --workspace-id $$WS_ID --region $(AWS_REGION) --query 'workspace.prometheusEndpoint' --output text 2>/dev/null); \
-	  kubectl --context $(OTEL_CLUSTER) create configmap amp-config -n monitoring \
+	  kubectl --context $(OTEL_CLUSTER) create configmap amp-config -n observability \
 	    --from-literal=endpoint="$${AMP_EP}api/v1/remote_write" \
 	    --dry-run=client -o yaml | kubectl --context $(OTEL_CLUSTER) apply -f -; \
 	else \
-	  kubectl --context $(OTEL_CLUSTER) create configmap amp-config -n monitoring \
-	    --from-literal=endpoint="http://mimir-gateway.monitoring.svc.cluster.local/api/v1/push" \
+	  kubectl --context $(OTEL_CLUSTER) create configmap amp-config -n observability \
+	    --from-literal=endpoint="http://mimir-gateway.observability.svc.cluster.local/api/v1/push" \
 	    --dry-run=client -o yaml | kubectl --context $(OTEL_CLUSTER) apply -f -; \
 	fi
 	@echo "Applying Gateway in $(OTEL_CLUSTER)..."
@@ -252,17 +252,17 @@ k8s-deploy-apps:
 	@echo "Waiting for OTel Operator in $(TARGET_APPS_CLUSTER)..."
 	kubectl --context $(TARGET_APPS_CLUSTER) wait --for=condition=Available --timeout=300s deployment/opentelemetry-operator -n opentelemetry-operator-system
 	@echo "Applying Namespace in $(TARGET_APPS_CLUSTER)..."
-	kubectl --context $(TARGET_APPS_CLUSTER) create namespace monitoring --dry-run=client -o yaml | kubectl --context $(TARGET_APPS_CLUSTER) apply -f -
+	kubectl --context $(TARGET_APPS_CLUSTER) create namespace observability --dry-run=client -o yaml | kubectl --context $(TARGET_APPS_CLUSTER) apply -f -
 	$(eval DOCKER_USER := $(strip $(DOCKERHUB_USER_NAME)))
 	$(eval REGISTRY := $(if $(DOCKER_USER),$(DOCKER_USER),okkarthik))
 	@echo "Using Image Registry / Prefix: $(REGISTRY)"; \
 	if [ "$(SINGLE_CLUSTER)" = "true" ]; then \
 		echo "Single-cluster mode: Routing OTel telemetry directly via in-cluster DNS..."; \
-		OTEL_GATEWAY_LB_HOST="otel-collector-tier2-router-collector.monitoring.svc.cluster.local"; \
+		OTEL_GATEWAY_LB_HOST="otel-collector-tier2-router-collector.observability.svc.cluster.local"; \
 	else \
 		echo "Waiting for OTel Gateway LoadBalancer hostname to be assigned..."; \
 		for i in $$(seq 1 30); do \
-			host=$$(kubectl --context $(OTEL_CLUSTER) get svc svc-nlb-otel-gateway -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null); \
+			host=$$(kubectl --context $(OTEL_CLUSTER) get svc svc-nlb-otel-gateway -n observability -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null); \
 			if [ -n "$$host" ]; then \
 				echo "Found OTel Gateway LoadBalancer Host: $$host"; \
 				OTEL_GATEWAY_LB_HOST=$$host; \
@@ -326,15 +326,15 @@ k8s-undeploy-all: k8s-undeploy-samples k8s-benchmark-stop
 k8s-dashboards: ## Port-forward Grafana to http://localhost:3000
 	@echo "Forwarding Grafana UI to http://localhost:3000 (from EKS $(OTEL_CLUSTER))..."
 	@echo "Username: admin    Password: run 'make grafana-password'"
-	@kubectl --context $(OTEL_CLUSTER) port-forward -n monitoring svc/grafana 3000:80
+	@kubectl --context $(OTEL_CLUSTER) port-forward -n observability svc/grafana 3000:80
 
 grafana-password: ## Print the chart-generated Grafana admin password
-	@kubectl --context $(OTEL_CLUSTER) get secret grafana -n monitoring \
+	@kubectl --context $(OTEL_CLUSTER) get secret grafana -n observability \
 	  -o jsonpath='{.data.admin-password}' | base64 -d; echo
 
 k8s-status: ## Show pod status on active cluster(s)
-	@echo "=== $(OTEL_CLUSTER) / monitoring ==="
-	@kubectl --context $(OTEL_CLUSTER) get pods -n monitoring -o wide || true
+	@echo "=== $(OTEL_CLUSTER) / observability ==="
+	@kubectl --context $(OTEL_CLUSTER) get pods -n observability -o wide || true
 	@echo ""
 	@echo "=== $(OTEL_CLUSTER) / pending or unhealthy pods (all namespaces) ==="
 	@kubectl --context $(OTEL_CLUSTER) get pods -A \
@@ -342,7 +342,7 @@ k8s-status: ## Show pod status on active cluster(s)
 	@if [ "$(SINGLE_CLUSTER)" != "true" ]; then \
 		echo ""; \
 		echo "=== $(APPS_CLUSTER) ==="; \
-		kubectl --context $(APPS_CLUSTER) get pods -A -o wide 2>/dev/null | grep -E 'monitoring|default|NAMESPACE' || true; \
+		kubectl --context $(APPS_CLUSTER) get pods -A -o wide 2>/dev/null | grep -E 'observability|default|NAMESPACE' || true; \
 	fi
 
 # Renders the pinned charts with the repo's values so value-path mistakes are
@@ -368,21 +368,21 @@ helm-lint: ## Render LGTM + ELK charts locally (no cluster required)
 	@sed 's/$${\([a-z_]*\)}/PLACEHOLDER/g' \
 	  terraform/modules/observability-stack/helm-values/logstash.yaml.tftpl > .helm-render/logstash.yaml
 	@echo "--- loki 7.2.0 ---"
-	@helm template loki grafana/loki --version 7.2.0 -n monitoring \
+	@helm template loki grafana/loki --version 7.2.0 -n observability \
 	  -f .helm-render/loki.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'Deployment|StatefulSet|DaemonSet'
 	@echo "--- tempo 1.24.4 ---"
-	@helm template tempo grafana/tempo --version 1.24.4 -n monitoring \
+	@helm template tempo grafana/tempo --version 1.24.4 -n observability \
 	  -f .helm-render/tempo.yaml 2>/dev/null | grep -A3 'trace:' | head -8
 	@echo "--- mimir-distributed 6.1.0 ---"
-	@helm template mimir grafana/mimir-distributed --version 6.1.0 -n monitoring \
+	@helm template mimir grafana/mimir-distributed --version 6.1.0 -n observability \
 	  -f .helm-render/mimir.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'Deployment|StatefulSet'
 	@echo "--- opensearch 3.8.0 ---"
-	@helm template opensearch opensearch/opensearch --version 3.8.0 -n monitoring \
+	@helm template opensearch opensearch/opensearch --version 3.8.0 -n observability \
 	  -f .helm-render/opensearch.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'StatefulSet'
 	@echo "--- opensearch-dashboards 3.8.0 ---"
-	@helm template opensearch-dashboards opensearch/opensearch-dashboards --version 3.8.0 -n monitoring \
+	@helm template opensearch-dashboards opensearch/opensearch-dashboards --version 3.8.0 -n observability \
 	  -f .helm-render/opensearch-dashboards.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'Deployment'
 	@echo "--- logstash 8.5.1 ---"
-	@helm template logstash elastic/logstash --version 8.5.1 -n monitoring \
+	@helm template logstash elastic/logstash --version 8.5.1 -n observability \
 	  -f .helm-render/logstash.yaml | grep -E '^kind:|^  name:' | paste - - | grep -E 'StatefulSet'
 	@rm -rf .helm-render

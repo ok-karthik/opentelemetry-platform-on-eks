@@ -16,8 +16,8 @@
 #
 # Both overrides are applied under `mimir.structuredConfig` below.
 #
-# Write endpoint: http://mimir-gateway.monitoring.svc.cluster.local/api/v1/push
-# Query endpoint: http://mimir-gateway.monitoring.svc.cluster.local/prometheus
+# Write endpoint: http://mimir-gateway.observability.svc.cluster.local/api/v1/push
+# Query endpoint: http://mimir-gateway.observability.svc.cluster.local/prometheus
 #
 # The gateway injects `X-Scope-OrgID: anonymous`, so neither Grafana nor the
 # OTel gateway needs to set a tenant header.
@@ -237,9 +237,9 @@ alertmanager:
     receivers:
       - name: alert-sink
         webhook_configs:
-          - url: http://alert-sink.monitoring.svc.cluster.local:8080/webhook
+          - url: http://alert-sink.observability.svc.cluster.local.:8080/webhook
             send_resolved: true
       - name: goalert
         webhook_configs:
-          - url: "http://goalert.monitoring.svc.cluster.local:8081/api/v2/generic/incoming?token=<GOALERT_INTEGRATION_KEY>"
+          - url: "http://goalert.observability.svc.cluster.local.:8081/api/v2/generic/incoming?token=<GOALERT_INTEGRATION_KEY>"
             send_resolved: true

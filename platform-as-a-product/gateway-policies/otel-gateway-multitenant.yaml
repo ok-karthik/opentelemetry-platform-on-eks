@@ -70,7 +70,7 @@ connectors:
 exporters:
   # Default fallback exporter (e.g., generic cluster-wide backend)
   otlp/default:
-    endpoint: default-lgtm.monitoring.svc.cluster.local:4317
+    endpoint: default-lgtm.observability.svc.cluster.local:4317
     tls:
       insecure: true
 

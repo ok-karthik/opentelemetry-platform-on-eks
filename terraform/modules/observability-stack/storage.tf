@@ -100,14 +100,14 @@ resource "aws_iam_role_policy_attachment" "grafana_stack_s3_attach" {
 #    Each individual Helm chart creates its own ServiceAccount (loki, tempo, mimir).
 resource "aws_eks_pod_identity_association" "loki" {
   cluster_name    = var.cluster_name
-  namespace       = "monitoring"
+  namespace       = "observability"
   service_account = "loki"
   role_arn        = aws_iam_role.grafana_stack.arn
 }
 
 resource "aws_eks_pod_identity_association" "tempo" {
   cluster_name    = var.cluster_name
-  namespace       = "monitoring"
+  namespace       = "observability"
   service_account = "tempo"
   role_arn        = aws_iam_role.grafana_stack.arn
 }
@@ -115,7 +115,7 @@ resource "aws_eks_pod_identity_association" "tempo" {
 resource "aws_eks_pod_identity_association" "mimir" {
   count           = var.use_amazon_managed_prometheus ? 0 : 1
   cluster_name    = var.cluster_name
-  namespace       = "monitoring"
+  namespace       = "observability"
   service_account = "mimir"
   role_arn        = aws_iam_role.grafana_stack.arn
 }
