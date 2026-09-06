@@ -29,13 +29,8 @@ spec:
       value: "200MiB"
     - name: GOGC
       value: "80"
-  nodeSelector:
-    dedicated: monitoring
-  tolerations:
-    - key: dedicated
-      operator: Equal
-      value: monitoring
-      effect: NoSchedule
+  # Stateless Ingress Router: schedules on spot-primary (or on-demand-fallback)
+  # Memory limiter ensures in-flight spans flush in <5s during node draining.
   config:
     extensions:
       health_check:
@@ -189,13 +184,8 @@ spec:
       value: "800MiB"
     - name: GOGC
       value: "80"
-  nodeSelector:
-    dedicated: monitoring
-  tolerations:
-    - key: dedicated
-      operator: Equal
-      value: monitoring
-      effect: NoSchedule
+  # Stateless Processor: schedules on spot-primary (or on-demand-fallback)
+  # Batch processor buffer flushes gracefully on SIGTERM before spot termination.
   config:
     extensions:
       health_check:

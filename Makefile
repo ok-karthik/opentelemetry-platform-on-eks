@@ -139,12 +139,41 @@ k8s-create-helm: ## Stage 2 only — install/upgrade Helm charts (assumes EKS is
 	    -parallelism=20 \
 	    -auto-approve
 
-k8s-destroy: ## Destroy all AWS resources in active topology
+k8s-pre-destroy: ## Gracefully delete in-cluster ALBs, Karpenter nodes, and PVCs while controllers are still healthy
+	@echo "=== [Pre-Destroy] Gracefully removing in-cluster Ingresses (releasing ALBs/SGs) ==="
+	-kubectl --context $(OTEL_CLUSTER) delete ingress -A --all --timeout=60s 2>/dev/null || true
+	@if [ "$(SINGLE_CLUSTER)" != "true" ]; then \
+		kubectl --context $(APPS_CLUSTER) delete ingress -A --all --timeout=60s 2>/dev/null || true; \
+	fi
+	@echo "=== [Pre-Destroy] Gracefully terminating Karpenter-managed NodeClaims ==="
+	-kubectl --context $(OTEL_CLUSTER) delete nodeclaims.karpenter.sh --all --timeout=60s 2>/dev/null || true
+	@if [ "$(SINGLE_CLUSTER)" != "true" ]; then \
+		kubectl --context $(APPS_CLUSTER) delete nodeclaims.karpenter.sh --all --timeout=60s 2>/dev/null || true; \
+	fi
+	@echo "=== [Pre-Destroy] Deleting PVCs to allow EBS CSI driver to delete underlying volumes ==="
+	-kubectl --context $(OTEL_CLUSTER) delete pvc -A --all --timeout=60s 2>/dev/null || true
+	@echo "=== [Pre-Destroy] Allowing 10s for controllers to finalize teardown ==="
+	@sleep 10
+
+k8s-clean-ebs-volumes: ## Clean up any unattached dynamic EBS PVC volumes left behind
+	@echo "=== Pruning unattached EBS volumes for $(OTEL_CLUSTER) ==="
+	@VOLS=$$(aws ec2 describe-volumes --region $(AWS_REGION) \
+	  --filters "Name=tag:KubernetesCluster,Values=$(OTEL_CLUSTER)" "Name=status,Values=available" \
+	  --query "Volumes[*].VolumeId" --output text 2>/dev/null); \
+	if [ -n "$$VOLS" ] && [ "$$VOLS" != "None" ]; then \
+	  for vol in $$VOLS; do \
+	    echo "Deleting unattached EBS volume: $$vol"; \
+	    aws ec2 delete-volume --region $(AWS_REGION) --volume-id $$vol 2>/dev/null || true; \
+	  done; \
+	fi
+
+k8s-destroy: k8s-pre-destroy ## Destroy all AWS resources in active topology (with pre-destroy and post-destroy cleanup)
 	cd $(TF_DIR) && terraform destroy \
 	  -var="deploy_observability_stack=true" \
 	  $(TF_SPOT_VARS) \
 	  -parallelism=20 \
 	  -auto-approve
+	@$(MAKE) k8s-clean-ebs-volumes
 
 k8s-context: ## Update kubeconfig context for active cluster(s)
 	@if [ "$(SINGLE_CLUSTER)" = "true" ]; then \

@@ -8,9 +8,9 @@ data "aws_availability_zones" "available" {
 data "aws_region" "current" {}
 
 locals {
-  env      = "dev"
-  project  = "workloads-and-observability"
-  vpc_cidr = "10.1.0.0/16"
+  env      = var.environment
+  project  = var.project_name
+  vpc_cidr = var.vpc_cidr
   azs      = slice(data.aws_availability_zones.available.names, 0, 3)
 }
 
@@ -25,6 +25,87 @@ resource "aws_vpc" "main" {
   tags = {
     Name = "${local.project}-${local.env}-vpc"
   }
+}
+
+# ==============================================================================
+# Automated VPC Pre-Destroy Teardown Hook
+# Ensures out-of-band cloud resources created dynamically by Kubernetes controllers
+# (Karpenter EC2 instances, AWS Load Balancer Controller ALBs, Target Groups,
+# and LoadBalancer Security Groups) are swept cleanly before AWS deletes the VPC/subnets.
+# Completely eliminates AWS "DependencyViolation" teardown race conditions.
+# ==============================================================================
+resource "terraform_data" "vpc_cleanup_hook" {
+  input = {
+    vpc_id = aws_vpc.main.id
+    region = var.aws_region
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<-EOT
+      VPC_ID="${self.output.vpc_id}"
+      REGION="${self.output.region}"
+      echo "=== [Pre-Destroy Hook] Auditing and clearing out-of-band resources in VPC $VPC_ID ==="
+
+      # 1. Terminate any dynamic Karpenter EC2 instances in this VPC
+      INSTANCES=$(aws ec2 describe-instances --region $REGION \
+        --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag-key,Values=karpenter.sh/nodepool" "Name=instance-state-name,Values=running,pending,stopping,stopped" \
+        --query "Reservations[*].Instances[*].InstanceId" --output text 2>/dev/null || true)
+      if [ -n "$INSTANCES" ] && [ "$INSTANCES" != "None" ]; then
+        echo "Terminating orphaned Karpenter instances: $INSTANCES"
+        aws ec2 terminate-instances --region $REGION --instance-ids $INSTANCES >/dev/null 2>&1 || true
+        aws ec2 wait instance-terminated --region $REGION --instance-ids $INSTANCES >/dev/null 2>&1 || true
+      fi
+
+      # 2. Delete any ALBs/NLBs created by AWS Load Balancer Controller in this VPC
+      LBS=$(aws elbv2 describe-load-balancers --region $REGION \
+        --query "LoadBalancers[?VpcId=='$VPC_ID'].LoadBalancerArn" --output text 2>/dev/null || true)
+      if [ -n "$LBS" ] && [ "$LBS" != "None" ]; then
+        for lb in $LBS; do
+          echo "Deleting orphaned Load Balancer: $lb"
+          aws elbv2 delete-load-balancer --region $REGION --load-balancer-arn "$lb" >/dev/null 2>&1 || true
+        done
+        sleep 10
+      fi
+
+      # 3. Delete any orphaned Target Groups in this VPC
+      TGS=$(aws elbv2 describe-target-groups --region $REGION \
+        --query "TargetGroups[?VpcId=='$VPC_ID'].TargetGroupArn" --output text 2>/dev/null || true)
+      if [ -n "$TGS" ] && [ "$TGS" != "None" ]; then
+        for tg in $TGS; do
+          echo "Deleting orphaned Target Group: $tg"
+          aws elbv2 delete-target-group --region $REGION --target-group-arn "$tg" >/dev/null 2>&1 || true
+        done
+      fi
+
+      # 4. Wait for non-NAT ENIs to cleanly detach and delete
+      for i in $(seq 1 30); do
+        ENIS=$(aws ec2 describe-network-interfaces --region $REGION \
+          --filters "Name=vpc-id,Values=$VPC_ID" \
+          --query "NetworkInterfaces[?InterfaceType!='nat_gateway'].NetworkInterfaceId" --output text 2>/dev/null || true)
+        if [ -z "$ENIS" ] || [ "$ENIS" = "None" ]; then
+          break
+        fi
+        echo "Waiting for ENIs to release ($ENIS)..."
+        sleep 5
+      done
+
+      # 5. Delete any remaining non-default Security Groups in this VPC (e.g. k8s-traffic-*, k8s-appgroup-*)
+      SGS=$(aws ec2 describe-security-groups --region $REGION \
+        --filters "Name=vpc-id,Values=$VPC_ID" \
+        --query "SecurityGroups[?GroupName!='default'].GroupId" --output text 2>/dev/null || true)
+      if [ -n "$SGS" ] && [ "$SGS" != "None" ]; then
+        for sg in $SGS; do
+          echo "Deleting orphaned Kubernetes security group: $sg"
+          aws ec2 revoke-security-group-ingress --region $REGION --group-id $sg --protocol all --port 0-65535 --cidr 0.0.0.0/0 >/dev/null 2>&1 || true
+          aws ec2 delete-security-group --region $REGION --group-id $sg >/dev/null 2>&1 || true
+        done
+      fi
+      echo "=== [Pre-Destroy Hook] VPC $VPC_ID dependencies successfully cleared ==="
+    EOT
+  }
+
+  depends_on = [aws_vpc.main]
 }
 
 # ==============================================================================

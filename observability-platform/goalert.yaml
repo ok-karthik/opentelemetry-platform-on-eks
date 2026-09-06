@@ -57,6 +57,13 @@ spec:
       labels:
         app: goalert-postgres
     spec:
+      nodeSelector:
+        dedicated: monitoring-stateful
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring-stateful
+          effect: NoSchedule
       containers:
         - name: postgres
           image: postgres:16.4-alpine

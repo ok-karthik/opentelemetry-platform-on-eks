@@ -1,26 +1,71 @@
+{{- if .Values.enableSpot }}
+# ==============================================================================
+# 1. Primary Spot NodePool (Weight: 100)
+# High priority pool for all general stateless workloads (OTel gateways, queriers, demo apps)
+# Maximizes FinOps cost savings (up to 70-90% discount)
+# ==============================================================================
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
-  name: default
+  name: spot-primary
 spec:
+  weight: 100
   template:
     spec:
+      terminationGracePeriod: {{ .Values.terminationGracePeriod | default "120s" }}
       requirements:
         - key: karpenter.sh/capacity-type
           operator: In
-          values:
-            {{- if .Values.enableSpot }}
-            - "spot"
-            - "on-demand"
-            {{- else }}
-            - "on-demand"
-            {{- end }}
+          values: ["spot"]
+        - key: "karpenter.k8s.aws/instance-category"
+          operator: In
+          values: ["c", "m", "r"]
+        - key: "karpenter.k8s.aws/instance-generation"
+          operator: Gt
+          values: ["2"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+  limits:
+    cpu: "{{ .Values.cpuLimit }}"
+    memory: "{{ .Values.memoryLimit }}"
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: {{ .Values.consolidateAfter | default "5m" }}
+    expireAfter: 720h
+---
+# ==============================================================================
+# 2. On-Demand Safety Fallback NodePool (Weight: 1)
+# Seamless fallback when regional/AZ spot capacity pools are temporarily exhausted.
+# Prevents pods from getting stuck in Pending during AWS spot droughts.
+# When spot capacity recovers, Karpenter consolidates workloads back to spot.
+# ==============================================================================
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: on-demand-fallback
+spec:
+  weight: 1
+  template:
+    spec:
+      terminationGracePeriod: {{ .Values.terminationGracePeriod | default "120s" }}
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
         - key: "karpenter.k8s.aws/instance-category"
           operator: In
           values: ["c", "m", "r", "t"]
         - key: "karpenter.k8s.aws/instance-generation"
           operator: Gt
           values: ["2"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
@@ -30,45 +75,86 @@ spec:
     memory: "{{ .Values.memoryLimit }}"
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 30s
+    consolidateAfter: {{ .Values.consolidateAfter | default "5m" }}
     expireAfter: 720h
----
+{{- else }}
 # ==============================================================================
-# Dedicated NodePool for Observability & Monitoring Workloads
-# Isolated with taints/tolerations to prevent noisy neighbor contention with apps
+# Standard On-Demand NodePool (Used when enableSpot is false)
 # ==============================================================================
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
-  name: monitoring
+  name: default-on-demand
+spec:
+  template:
+    spec:
+      terminationGracePeriod: {{ .Values.terminationGracePeriod | default "120s" }}
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: "karpenter.k8s.aws/instance-category"
+          operator: In
+          values: ["c", "m", "r", "t"]
+        - key: "karpenter.k8s.aws/instance-generation"
+          operator: Gt
+          values: ["2"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+  limits:
+    cpu: "{{ .Values.cpuLimit }}"
+    memory: "{{ .Values.memoryLimit }}"
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: {{ .Values.consolidateAfter | default "5m" }}
+    expireAfter: 720h
+{{- end }}
+---
+# ==============================================================================
+# 3. Dedicated Stateful Storage NodePool (100% On-Demand)
+# Exclusively isolated for EBS-backed StatefulSets:
+#   - Mimir Ingesters & Store-Gateways
+#   - Loki SingleBinary / Ingesters
+#   - Tempo WAL / Ingesters
+#   - GoAlert PostgreSQL
+#
+# Prevents AWS EBS 6-minute Multi-Attach deadlocks and AZ-binding conflicts.
+# Uses consolidationPolicy: WhenEmpty to prevent churn on active storage nodes.
+# ==============================================================================
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: monitoring-stateful
 spec:
   template:
     metadata:
       labels:
-        workload-type: monitoring
-        dedicated: monitoring
+        workload-type: monitoring-stateful
+        dedicated: monitoring-stateful
     spec:
-      # Taint nodes so only observability workloads with matching tolerations run here
+      terminationGracePeriod: {{ .Values.terminationGracePeriod | default "120s" }}
       taints:
         - key: dedicated
-          value: monitoring
+          value: monitoring-stateful
           effect: NoSchedule
       requirements:
         - key: karpenter.sh/capacity-type
           operator: In
-          values:
-            {{- if .Values.enableSpot }}
-            - "spot"
-            - "on-demand"
-            {{- else }}
-            - "on-demand"
-            {{- end }}
+          values: ["on-demand"]
         - key: "karpenter.k8s.aws/instance-category"
           operator: In
           values: ["m", "r", "c"]
         - key: "karpenter.k8s.aws/instance-generation"
           operator: Gt
           values: ["2"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
@@ -77,6 +163,6 @@ spec:
     cpu: "{{ .Values.cpuLimit }}"
     memory: "{{ .Values.memoryLimit }}"
   disruption:
-    consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 30s
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 10m
     expireAfter: 720h

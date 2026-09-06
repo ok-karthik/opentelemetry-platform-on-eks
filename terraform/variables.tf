@@ -66,3 +66,9 @@ variable "node_group_desired_capacity" {
   type        = number
   default     = 2
 }
+
+variable "admin_access_principals" {
+  description = "Map of IAM principal ARNs to grant EKS Cluster Admin access"
+  type        = map(string)
+  default     = {}
+}

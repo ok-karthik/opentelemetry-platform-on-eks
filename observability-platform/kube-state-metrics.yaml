@@ -81,13 +81,6 @@ spec:
         app.kubernetes.io/name: kube-state-metrics
     spec:
       serviceAccountName: kube-state-metrics
-      nodeSelector:
-        dedicated: monitoring
-      tolerations:
-        - key: dedicated
-          operator: Equal
-          value: monitoring
-          effect: NoSchedule
       containers:
         - name: kube-state-metrics
           image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0

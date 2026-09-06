@@ -88,6 +88,7 @@ resource "helm_release" "cert_manager" {
 # 2. OpenTelemetry Operator
 # ------------------------------------------------------------------------------
 resource "helm_release" "otel_operator" {
+  count            = var.enable_otel_operator ? 1 : 0
   name             = "opentelemetry-operator"
   repository       = "https://open-telemetry.github.io/opentelemetry-helm-charts"
   chart            = "opentelemetry-operator"

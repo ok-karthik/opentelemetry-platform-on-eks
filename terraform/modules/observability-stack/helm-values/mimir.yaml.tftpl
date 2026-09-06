@@ -40,11 +40,11 @@
 
 global:
   nodeSelector:
-    dedicated: monitoring
+    dedicated: monitoring-stateful
   tolerations:
     - key: dedicated
       operator: Equal
-      value: monitoring
+      value: monitoring-stateful
       effect: NoSchedule
 
 # --- Components we do not run in the demo -------------------------------------

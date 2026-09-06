@@ -53,6 +53,7 @@ module "eks_base" {
   node_group_instance_types   = var.node_group_instance_types
   node_group_desired_capacity = var.node_group_desired_capacity
   karpenter_enable_spot       = var.karpenter_enable_spot
+  admin_access_principals     = var.admin_access_principals
 }
 
 # ==============================================================================

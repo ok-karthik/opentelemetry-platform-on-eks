@@ -118,19 +118,21 @@ module "eks" {
   # 5. Enable access entries (Modern EKS auth)
   enable_cluster_creator_admin_permissions = true
 
-  access_entries = {
-    console_user = {
-      principal_arn = "arn:aws:iam::174160028427:user/ok"
-      policy_associations = {
-        admin = {
-          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-          access_scope = {
-            type = "cluster"
+  access_entries = merge(
+    {
+      for name, arn in var.admin_access_principals : name => {
+        principal_arn = arn
+        policy_associations = {
+          admin = {
+            policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+            access_scope = {
+              type = "cluster"
+            }
           }
         }
       }
     }
-  }
+  )
 
   # 6. Allow intra-VPC OTel & NodePort traffic
   node_security_group_additional_rules = {
@@ -171,6 +173,12 @@ module "karpenter" {
     AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
     AmazonEBSCSIDriverPolicy     = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
   }
+
+  # Interruption handling (Spot interruptions, EC2 rebalance & health events):
+  # enable_spot_termination defaults to true in this module, creating the SQS queue and EventBridge rules.
+  # queue_name defaults to cluster name; exported via module.karpenter.queue_name and wired into Karpenter Helm in addons.tf.
+  enable_spot_termination = true
+  # queue_name            = "karpenter-interruption-queue" # Optional custom name (defaults to cluster_name)
 
   tags = {
     Environment = "observability"

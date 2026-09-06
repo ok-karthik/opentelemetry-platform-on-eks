@@ -22,14 +22,9 @@ resources:
 persistence:
   enabled: false
 
-nodeSelector:
-  dedicated: monitoring
-
-tolerations:
-  - key: dedicated
-    operator: Equal
-    value: monitoring
-    effect: NoSchedule
+# Stateless web UI — schedules on spot-primary (or on-demand-fallback)
+nodeSelector: {}
+tolerations: []
 
 # Picks up any ConfigMap in the namespace labelled `grafana_dashboard: "1"`.
 # The sidecar writes its own dashboard provider file, so the repo must NOT ship

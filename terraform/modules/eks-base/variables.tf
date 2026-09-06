@@ -68,3 +68,33 @@ variable "karpenter_enable_spot" {
   type        = bool
   default     = false
 }
+
+variable "vpc_cidr" {
+  description = "The CIDR block for the VPC"
+  type        = string
+  default     = "10.1.0.0/16"
+}
+
+variable "project_name" {
+  description = "Project identifier for resource naming and tagging"
+  type        = string
+  default     = "workloads-and-observability"
+}
+
+variable "environment" {
+  description = "Deployment environment name (e.g. dev, prod)"
+  type        = string
+  default     = "dev"
+}
+
+variable "admin_access_principals" {
+  description = "Map of IAM principal ARNs to grant EKS Cluster Admin access"
+  type        = map(string)
+  default     = {}
+}
+
+variable "enable_otel_operator" {
+  description = "Whether to deploy the OpenTelemetry Operator Helm chart in eks-base"
+  type        = bool
+  default     = true
+}
