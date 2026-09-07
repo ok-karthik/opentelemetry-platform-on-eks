@@ -1,0 +1,55 @@
+# ==============================================================================
+# Optional: KEDA Metric-Driven Autoscaler for OpenTelemetry Ingress Gateways
+# ==============================================================================
+# PURPOSE & ARCHITECTURAL USE CASE:
+# - Eliminates standard Kubernetes CPU HPA lag during sudden 5x-10x traffic surges.
+# - While CPU HPA takes 60-120s to detect high utilization, KEDA scales immediately
+#   upon detecting wire traffic surges via Prometheus metrics on port :8888.
+# - Target: Scales Tier 2 Router replicas dynamically between 3 (multi-AZ baseline)
+#   and 30 pods based on average incoming spans/sec per pod.
+#
+# PREREQUISITES:
+# - KEDA installed in the cluster (e.g., via `helm install keda kedacore/keda -n keda --create-namespace`)
+# - Prometheus/Mimir reachable at `http://mimir-gateway.observability.svc.cluster.local/prometheus`
+#   (or AMP via SigV4 proxy).
+#
+# HOW TO DEPLOY:
+#   kubectl apply -f observability-platform/optional-extensions/keda-otel-autoscaler.yaml
+# ==============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: otel-tier2-router-keda-autoscaler
+  namespace: observability
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: otel-collector-tier2-router-collector
+  minReplicaCount: 3   # Guarantees at least 1 router pod per AZ across 3 Availability Zones
+  maxReplicaCount: 30
+  pollingInterval: 15  # Fast 15s evaluation window
+  cooldownPeriod: 300  # 5 minutes stabilization to prevent scale-down oscillation
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 100     # Allow doubling pod capacity in 15s during extreme bursts
+              periodSeconds: 15
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 10      # Conservative 10% reduction to preserve queue drain
+              periodSeconds: 60
+  triggers:
+    # Trigger 1: Ingestion rate spike (scales when spans/pod exceeds 15,000 / sec)
+    - type: prometheus
+      metadata:
+        serverAddress: http://mimir-gateway.observability.svc.cluster.local/prometheus
+        metricName: otel_ingestion_rate_per_pod
+        query: sum(rate(otelcol_receiver_accepted_spans_total[1m])) / count(kube_deployment_status_replicas_available{deployment="otel-collector-tier2-router-collector", namespace="observability"})
+        threshold: '15000'

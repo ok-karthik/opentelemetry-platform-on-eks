@@ -13,9 +13,19 @@
 # - Multi-consumer fan-out: allows streaming the same telemetry simultaneously to Loki,
 #   OpenSearch SIEM, and S3 data lakes.
 #
+# STORAGE ARCHITECTURE & BEST PRACTICES:
+# - NEVER use AWS EFS: Kafka relies on Linux OS pagecache, kernel memory mapping (mmap),
+#   and zero-copy sendfile() syscalls. Network-attached NFS/EFS introduces locking latencies
+#   and metadata synchronization stalls that cause broker desynchronization and lockups.
+# - AWS EBS gp3 (Standard): Uses single-AZ dynamic PersistentVolumeClaims backed by
+#   the AWS EBS CSI driver (StorageClass: gp3). Replication factor (RF=3) across 3 AZs
+#   guarantees data durability and high availability.
+# - Local NVMe SSDs (Ultra-Scale >100k QPS): Use EC2 instance store (c7gd, m7gd, r7gd, i4i)
+#   with XFS formatting via Local Persistent Volumes (LPV) for maximum raw IOPS.
+#
 # HOW TO DEPLOY:
-# 1. Apply this stub: `kubectl apply -f observability-platform/k8s-manifests/optional-extensions/kafka-stub.yaml`
-# 2. Re-enable the `kafka/logs` exporter in `observability-platform/k8s-manifests/otel-collector-gateway.yaml`
+# 1. Apply this stub: `kubectl apply -f observability-platform/optional-extensions/kafka-stub.yaml`
+# 2. Re-enable the `kafka/logs` exporter in `observability-platform/otel-collector-gateway.yaml`
 # ==============================================================================
 apiVersion: v1
 kind: Service
@@ -47,6 +57,14 @@ spec:
       labels:
         app.kubernetes.io/name: kafka-stub
     spec:
+      # Isolate to dedicated on-demand storage nodes (avoids Spot interruption churn)
+      nodeSelector:
+        dedicated: monitoring-stateful
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring-stateful
+          effect: NoSchedule
       containers:
         - name: kafka
           image: bitnami/kafka:3.6
@@ -66,9 +84,21 @@ spec:
           ports:
             - name: client
               containerPort: 9092
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/kafka/data
           resources:
             requests:
               cpu: 100m
               memory: 256Mi
             limits:
               memory: 512Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3
+        resources:
+          requests:
+            storage: 10Gi

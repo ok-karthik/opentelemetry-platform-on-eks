@@ -287,10 +287,10 @@ spec:
           - name: keep-errors
             type: status_code
             status_code: { status_codes: [ERROR] }
-          # Policy 2: Sample HTTP 200/OK (100% in development demo; tune to 1.0% - 5.0% in high-traffic production to cut storage costs by 90%)
+          # Policy 2: Sample HTTP 200/OK at 10% rate for cost efficiency (90% reduction on healthy traces)
           - name: sample-success
             type: probabilistic
-            probabilistic: { sampling_percentage: 100.0 }
+            probabilistic: { sampling_percentage: 10.0 }
           # Policy 3: Keep any trace that takes longer than 2 seconds (2000 ms)
           - name: keep-latency-spikes
             type: latency
@@ -325,6 +325,20 @@ spec:
               # 3. Map http.target to url.path
               - set(attributes["url.path"], attributes["http.target"]) where attributes["http.target"] != nil
               - delete_key(attributes, "http.target")
+
+    connectors:
+      # Spanmetrics connector: Aggregates 100% of raw traces into Prometheus RED metrics
+      # (Rate, Errors, Duration) before tail-sampling drops healthy traces.
+      spanmetrics:
+        histogram:
+          explicit:
+            buckets: [10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
+        dimensions:
+          - name: http.response.status_code
+          - name: http.request.method
+          - name: service.name
+        dimensions_cache_size: 1000
+        metrics_flush_interval: 15s
 
     exporters:
       # Pushes metrics to Amazon Managed Prometheus (AMP) via AWS SigV4 (uncomment if using AMP)
@@ -386,8 +400,20 @@ spec:
                     host: 0.0.0.0
                     port: 8889
       pipelines:
-        # Pipeline 2: Receives trace-affinity routed spans and performs tail sampling
-        traces:
+        # Pipeline 2A: Receives 100% of spans, computes RED metrics with zero data loss
+        traces/metrics:
+          receivers: [otlp/internal]
+          processors:
+            [
+              memory_limiter,
+              filter/drop_noisy_asgi,
+              filter/lb_health_checks,
+              transform/standardize_http,
+            ]
+          exporters: [spanmetrics]
+
+        # Pipeline 2B: Receives spans, applies tail sampling (10% success, 100% error/spikes) and exports to Tempo S3
+        traces/storage:
           receivers: [otlp/internal]
           processors:
             [
@@ -399,8 +425,10 @@ spec:
               batch,
             ]
           exporters: [otlp/tempo]
+
+        # Pipeline 3: Metrics pipeline (Application metrics, meta-monitoring, plus spanmetrics RED data)
         metrics:
-          receivers: [otlp/internal, prometheus/meta_monitoring]
+          receivers: [otlp/internal, prometheus/meta_monitoring, spanmetrics]
           processors: [memory_limiter, batch]
           # Pushes to self-hosted Mimir by default. Swap to prometheusremotewrite/amp if using AWS AMP.
           exporters: [prometheusremotewrite]

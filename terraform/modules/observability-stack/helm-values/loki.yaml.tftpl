@@ -54,6 +54,12 @@ loki:
     volume_enabled: true
     retention_period: 168h
 
+  ingester:
+    # S3 PUT cost optimization: Consolidate chunks before flushing to S3
+    chunk_target_size: 1536000
+    chunk_idle_period: 30m
+    max_chunk_age: 2h
+
   compactor:
     retention_enabled: true
     delete_request_store: s3

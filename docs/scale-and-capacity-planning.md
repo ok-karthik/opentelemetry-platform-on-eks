@@ -114,7 +114,25 @@ Karpenter NodePools configure `kubernetes.io/arch: ["amd64", "arm64"]` to levera
 * **1:1 Physical Core Execution:** Eliminates hyperthreading (SMT) contention, providing consistent, jitter-free throughput for high-concurrency Go runtimes and telemetry ingestion.
 * **Up to 40% TCO Savings:** Combined price and instruction throughput improvements deliver substantial operational cost reductions at scale.
 
-### E. Buffer Architecture at > 25,000 QPS
+### E. Buffer Architecture & Kafka Storage at > 25,000 QPS
 Direct gRPC export from Tier 3 Processors to backend ingesters (Tempo/Loki/Mimir) is safe below 25K QPS. Above 25K QPS:
 * Backend restarts or S3 multi-part upload pauses cause upstream backpressure that exhausts collector memory.
 * Deploy an intermediate Kafka/MSK buffer cluster ([`kafka-stub.yaml`](../observability-platform/optional-extensions/kafka-stub.yaml)) to decouple real-time ingestion from backend persistence.
+
+**Kafka Storage Architecture Rules:**
+* **NEVER use AWS EFS:** Kafka requires POSIX pagecache, kernel memory mapping (`mmap`), and zero-copy `sendfile()` syscalls. NFS/EFS introduces file locking latency and metadata sync delays that desynchronize replicas and lock brokers.
+* **AWS EBS gp3 (Standard):** Single-AZ dynamic PVCs backed by the AWS EBS CSI driver (`storageClassName: gp3`), scheduled on dedicated on-demand nodes (`dedicated: monitoring-stateful`). Durability is achieved via Kafka partition replication factor (RF=3) across 3 AZs.
+* **Local NVMe SSDs (Ultra-Scale >100k QPS):** Direct hardware NVMe instance store (`c7gd`, `m7gd`, `r7gd`, `i4i`) formatted with XFS via Local Persistent Volumes (LPV) for maximum raw IOPS with zero EBS bandwidth limits.
+
+### F. Dual-Pipeline Telemetry Architecture: Spanmetrics & 10% Sampling
+To cut storage costs by 90% without compromising dashboard monitoring accuracy, Tier 3 Gateways fan out spans into two parallel pipelines:
+1. **`traces/metrics` (100% Volume):** Passes 100% of raw spans through the `spanmetrics` connector, calculating complete HTTP RED metrics (Rate, Errors, Duration histograms) and exporting directly to Prometheus/Mimir.
+2. **`traces/storage` (10% Sampled):** Applies `tail_sampling` keeping:
+   - **100% of Errors:** (`status_code: ERROR`)
+   - **100% of Latency Outliers:** (> 2,000 ms)
+   - **10% of Healthy Requests:** (`probabilistic: 10.0%`)
+This writes only high-value traces to Tempo S3, cutting trace storage bills by ~90% while keeping Grafana latency percentiles (p50, p95, p99) 100% statistically accurate.
+
+### G. S3 PUT Request Batching Optimization
+Amazon S3 Standard charges $0.005 per 1,000 PUT requests. At 50K–100K QPS, unbatched log and trace flushes can generate tens of millions of S3 PUTs monthly.
+* **Loki Ingester Tuning:** Configure `chunk_target_size: 1536000` (1.5 MB uncompressed), `chunk_idle_period: 30m`, and `max_chunk_age: 2h` in Helm values to consolidate logs into larger S3 objects, slashing PUT API charges by up to 80%.
