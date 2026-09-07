@@ -9,10 +9,17 @@ metadata:
 spec:
   mode: deployment
   autoscaler:
-    minReplicas: 2
+    minReplicas: 3
     maxReplicas: 10
     targetCPUUtilization: 80
   image: otel/opentelemetry-collector-contrib:0.159.0
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: otel-collector-tier2-router-collector
   
   # Without an explicit request the operator creates the pods with none, so the
   # scheduler treats two gateway replicas as free and the HPA has no CPU
@@ -165,7 +172,14 @@ spec:
   # StatefulSet mode provides a stable headless service and sticky identity for the router
   mode: statefulset
   replicas: 3
-  image: otel/opentelemetry-collector-contrib:0.156.0
+  image: otel/opentelemetry-collector-contrib:0.159.0
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: otel-collector-tier3-processor-collector
   resources:
     requests:
       cpu: 200m
@@ -273,7 +287,7 @@ spec:
           - name: keep-errors
             type: status_code
             status_code: { status_codes: [ERROR] }
-          # Policy 2: Sample HTTP 200/OK at 100% rate in development
+          # Policy 2: Sample HTTP 200/OK (100% in development demo; tune to 1.0% - 5.0% in high-traffic production to cut storage costs by 90%)
           - name: sample-success
             type: probabilistic
             probabilistic: { sampling_percentage: 100.0 }

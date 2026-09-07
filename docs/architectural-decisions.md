@@ -163,6 +163,17 @@ This document details the architectural rationale, trade-offs, and design choice
 
 ---
 
+### 12. Multi-Architecture Compute & AWS Graviton (ARM64) Price-Performance
+
+**Chosen:** Multi-architecture container delivery (`linux/amd64` and `linux/arm64`) with Karpenter NodePools configured for `kubernetes.io/arch: ["amd64", "arm64"]`.
+
+**Why:**
+* **20–40% Better Price-Performance:** Graviton processors (`c7g`, `m7g`, `r7g`) provide an immediate ~18–20% lower hourly instance cost compared to x86 equivalents (`c6i`, `m6i`, `r6i`).
+* **1:1 Physical Core Execution:** Eliminates hyperthreading (SMT) CPU resource contention, reducing latency jitter during high-volume Protobuf serialization, zstd compression, and PromQL/LogQL regex parsing.
+* **Seamless Coexistence:** Core platform components (OTel Collector, Loki, Tempo, Mimir, Grafana, PostgreSQL) run multi-arch images natively. Workload apps can run on either ARM64 or AMD64 without breaking platform telemetry collection.
+
+---
+
 ## Appendix: Architecture Evolution Patterns (From Simple to Global Enterprise)
 
 Below is the incremental architectural progression that explains why this platform evolved from basic sidecars to a dedicated two-tier regional gateway:

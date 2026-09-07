@@ -11,7 +11,7 @@ on:
 env:
   GOLANG_APP_REPO: golang-product-service
   PYTHON_APP_REPO: python-product-info-service
-  APPS_SRC_DIR: workloads/apps-src
+  APPS_SRC_DIR: workloads
 
 jobs:
   build-and-push:
@@ -21,6 +21,10 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      # Set up QEMU for multi-architecture emulation (arm64 on x86 runner)
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -38,13 +42,14 @@ jobs:
           password: ${{ secrets.DOCKERHUB_USER_TOKEN }}
 
       # ==============================================================================
-      # Build & Push Go Product Service
+      # Build & Push Multi-Arch Go Product Service (linux/amd64, linux/arm64)
       # ==============================================================================
       - name: Build and Push Go Product Service
         uses: docker/build-push-action@v6
         with:
           context: ./${{ env.APPS_SRC_DIR }}/golang-app
           file: ./${{ env.APPS_SRC_DIR }}/golang-app/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ secrets.DOCKERHUB_USER_NAME }}/${{ env.GOLANG_APP_REPO }}:${{ github.sha }}
@@ -53,13 +58,14 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ==============================================================================
-      # Build & Push Python Product Info Service
+      # Build & Push Multi-Arch Python Product Info Service (linux/amd64, linux/arm64)
       # ==============================================================================
       - name: Build and Push Python Product Info Service
         uses: docker/build-push-action@v6
         with:
           context: ./${{ env.APPS_SRC_DIR }}/python-app
           file: ./${{ env.APPS_SRC_DIR }}/python-app/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ secrets.DOCKERHUB_USER_NAME }}/${{ env.PYTHON_APP_REPO }}:${{ github.sha }}

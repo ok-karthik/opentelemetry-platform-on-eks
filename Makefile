@@ -231,20 +231,20 @@ k8s-deploy-otel:
 		echo "Single-cluster mode: Gateway routed directly via in-cluster ClusterIP service (NLB skipped)."; \
 	fi
 
-docker-build-push: ## Build and push Go and Python app images to Docker Hub (make docker-build-push DOCKERHUB_USER_NAME=youruser)
+docker-build-push: ## Build and push multi-arch (amd64, arm64) Go and Python app images to Docker Hub (make docker-build-push DOCKERHUB_USER_NAME=youruser)
 	@echo "Logging into Docker Hub..."
 	@if [ -z "$(DOCKERHUB_USER_NAME)" ]; then \
 		echo "ERROR: Please provide DOCKERHUB_USER_NAME (e.g., make docker-build-push DOCKERHUB_USER_NAME=youruser)"; \
 		exit 1; \
 	fi; \
 	docker login -u $(DOCKERHUB_USER_NAME)
-	@echo "Building and pushing Go Product Service..."
-	docker build -t $(DOCKERHUB_USER_NAME)/golang-product-service:latest workloads/golang-app
-	docker push $(DOCKERHUB_USER_NAME)/golang-product-service:latest
-	@echo "Building and pushing Python Product Info Service..."
-	docker build -t $(DOCKERHUB_USER_NAME)/python-product-info-service:latest workloads/python-app
-	docker push $(DOCKERHUB_USER_NAME)/python-product-info-service:latest
-	@echo "Successfully pushed images to Docker Hub."
+	@echo "Setting up Docker Buildx..."
+	docker buildx create --use --name multiarch-builder 2>/dev/null || docker buildx use multiarch-builder
+	@echo "Building and pushing multi-arch Go Product Service (linux/amd64, linux/arm64)..."
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(DOCKERHUB_USER_NAME)/golang-product-service:latest --push workloads/golang-app
+	@echo "Building and pushing multi-arch Python Product Info Service (linux/amd64, linux/arm64)..."
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(DOCKERHUB_USER_NAME)/python-product-info-service:latest --push workloads/python-app
+	@echo "Successfully pushed multi-arch images to Docker Hub."
 
 k8s-deploy-apps:
 	@echo "Waiting for Cert-Manager in $(TARGET_APPS_CLUSTER)..."

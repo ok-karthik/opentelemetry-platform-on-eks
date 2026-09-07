@@ -25,7 +25,7 @@ spec:
           values: ["2"]
         - key: kubernetes.io/arch
           operator: In
-          values: ["amd64"]
+          values: ["amd64", "arm64"]
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
@@ -65,7 +65,7 @@ spec:
           values: ["2"]
         - key: kubernetes.io/arch
           operator: In
-          values: ["amd64"]
+          values: ["amd64", "arm64"]
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
@@ -101,7 +101,7 @@ spec:
           values: ["2"]
         - key: kubernetes.io/arch
           operator: In
-          values: ["amd64"]
+          values: ["amd64", "arm64"]
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
@@ -154,7 +154,7 @@ spec:
           values: ["2"]
         - key: kubernetes.io/arch
           operator: In
-          values: ["amd64"]
+          values: ["arm64", "amd64"]
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
