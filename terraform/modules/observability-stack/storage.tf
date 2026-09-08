@@ -96,8 +96,41 @@ resource "aws_iam_role_policy_attachment" "grafana_stack_s3_attach" {
   policy_arn = aws_iam_policy.grafana_stack_s3.arn
 }
 
+resource "aws_iam_policy" "grafana_cloudwatch_query" {
+  name        = "${var.cluster_name}-grafana-cloudwatch-query"
+  description = "Permissions for Grafana to query CloudWatch metrics via Pod Identity"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:DescribeAlarmsForMetric",
+          "cloudwatch:DescribeAlarmHistory",
+          "cloudwatch:DescribeAlarms",
+          "cloudwatch:ListMetrics",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:GetMetricData",
+          "cloudwatch:GetInsightRuleReport",
+          "ec2:DescribeTags",
+          "ec2:DescribeInstances",
+          "ec2:DescribeRegions",
+          "tag:GetResources"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "grafana_cloudwatch_query_attach" {
+  role       = aws_iam_role.grafana_stack.name
+  policy_arn = aws_iam_policy.grafana_cloudwatch_query.arn
+}
+
 # 4. EKS Pod Identity Associations for the Observability Stack
-#    Each individual Helm chart creates its own ServiceAccount (loki, tempo, mimir).
+#    Each individual Helm chart creates its own ServiceAccount (loki, tempo, mimir, grafana).
 resource "aws_eks_pod_identity_association" "loki" {
   cluster_name    = var.cluster_name
   namespace       = "observability"
@@ -117,6 +150,13 @@ resource "aws_eks_pod_identity_association" "mimir" {
   cluster_name    = var.cluster_name
   namespace       = "observability"
   service_account = "mimir"
+  role_arn        = aws_iam_role.grafana_stack.arn
+}
+
+resource "aws_eks_pod_identity_association" "grafana" {
+  cluster_name    = var.cluster_name
+  namespace       = "observability"
+  service_account = "grafana"
   role_arn        = aws_iam_role.grafana_stack.arn
 }
 

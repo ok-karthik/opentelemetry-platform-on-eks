@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	_ "go.uber.org/automaxprocs"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
 )

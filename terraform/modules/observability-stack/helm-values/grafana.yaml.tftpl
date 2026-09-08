@@ -40,11 +40,9 @@ sidecar:
   datasources:
     enabled: false
 
-%{ if use_amp ~}
 grafana.ini:
   auth.sigv4:
     sigv4_auth_enabled: true
-%{ endif ~}
 
 datasources:
   datasources.yaml:
@@ -74,6 +72,14 @@ datasources:
           httpMethod: POST
           timeInterval: 15s
 %{ endif ~}
+
+      - name: CloudWatch
+        type: cloudwatch
+        uid: cloudwatch
+        access: proxy
+        jsonData:
+          authType: default
+          defaultRegion: ${aws_region}
 
       - name: Loki
         type: loki

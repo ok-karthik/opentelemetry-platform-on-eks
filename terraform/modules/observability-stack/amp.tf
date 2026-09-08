@@ -121,14 +121,6 @@ resource "aws_iam_role_policy_attachment" "grafana_amp_query_attach" {
   policy_arn = aws_iam_policy.grafana_amp_query[0].arn
 }
 
-resource "aws_eks_pod_identity_association" "grafana" {
-  count           = var.use_amazon_managed_prometheus ? 1 : 0
-  cluster_name    = var.cluster_name
-  namespace       = "observability"
-  service_account = "grafana"
-  role_arn        = aws_iam_role.grafana_stack.arn
-}
-
 # ------------------------------------------------------------------------------
 # Amazon Managed Grafana (AMG) Workspace (Optional Serverless Alternative)
 # ------------------------------------------------------------------------------

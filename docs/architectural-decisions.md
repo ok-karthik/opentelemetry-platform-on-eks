@@ -174,6 +174,22 @@ This document details the architectural rationale, trade-offs, and design choice
 
 ---
 
+### 13. Federated AWS Infrastructure Telemetry (Grafana CloudWatch Plugin via Pod Identity)
+
+**Chosen:** Federated query execution using Grafana's native CloudWatch Data Source plugin authenticated via EKS Pod Identity (`cloudwatch:GetMetricData`).
+
+**Rejected — Continuous Metric Ingestion (CloudWatch Metric Streams + Firehose -> Mimir):**
+* Streaming every ALB, RDS, and ElastiCache metric 24/7 incurs continuous AWS ingestion charges ($0.003/1k metrics) plus Kinesis Firehose fees and Mimir storage samples, costing **$50–$300+/month** even if nobody is looking at the graphs.
+
+**Rejected — Tool-Hopping (AWS Console for Infra, Grafana for Apps):**
+* Forcing engineers to jump between the AWS CloudWatch Console and Grafana during an incident creates cognitive friction, time-zone alignment errors, and increases MTTR by 3x–5x.
+
+**What it bought:**
+* **Zero Duplication Cost ($0.00 – $5.00/month):** AWS provides 1,000,000 free `GetMetricData` API calls/month. Metrics are queried strictly at read-time when an engineer opens an incident dashboard.
+* **Unified Single Pane of Glass:** Incident triage dashboards combine CloudWatch ALB 5XX/Latency, RDS CPU/Connections, EKS container CFS CPU throttling, Loki error logs, and Tempo trace waterfall in one screen.
+
+---
+
 ## Appendix: Architecture Evolution Patterns (From Simple to Global Enterprise)
 
 Below is the incremental architectural progression that explains why this platform evolved from basic sidecars to a dedicated two-tier regional gateway:
