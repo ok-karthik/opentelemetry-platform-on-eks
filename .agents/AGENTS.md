@@ -16,7 +16,7 @@ Although the directories currently live in one repository, reason about them as 
 | Domain | Path | Ownership & Purpose |
 |---|---|---|
 | **Workloads** | `workloads/` | App-team-owned microservices (`golang-app`, `python-app`) and the per-node DaemonSet collector. |
-| **Observability Platform** | `observability-platform/` | Central gateway runtime manifests (Two-tier Router/Processor, NLB, Grafana ALB, GoAlert, alert rules). |
+| **Observability Platform** | `observability-platform/` | Central gateway runtime manifests (Two-tier Router/Processor, NLB, Grafana ALB, alert rules). |
 | **Observability Product** | `observability-as-a-product/` | Observability product paved roads: onboarding contracts, 4 telemetry tiers, gateway policies, and GitOps baselines. |
 | **Infrastructure** | `terraform/` | Platform infrastructure: Day-1 EKS base module + Day-2 BYOC observability stack module. |
 | **Architecture** | `docs/` | Deep-dive architectural decisions, capacity planning (2k-200k QPS), multi-tenancy, and roadmap. |
@@ -41,7 +41,7 @@ Application container (workload cluster / namespace)
   -> Node-local OTel Collector DaemonSet (status.hostIP Downward API)
   -> Central Observability Gateway (Tier 1 Router -> Tier 2 Processor)
   -> Backends: Amazon Managed Prometheus (AMP), S3-backed Loki & Tempo, or optional Kafka/OpenSearch
-  -> Visualization & Escalation: Grafana (SigV4) & GoAlert pager
+  -> Visualization & Escalation: Grafana (SigV4) & AWS SSM Incident Manager
 ```
 
 For platform-engineering discussions, use this ownership model:
@@ -61,7 +61,7 @@ second copy drifts, and this file is the one agents read most.
 What the tree does not say, and this file is responsible for:
 
 - `workloads/` houses self-contained microservices (Go SDK & Python app) with their code, Dockerfiles, and deployment YAMLs, plus the node agent.
-- `observability-platform/` contains active runtime gateway, Ingestion NLB, Grafana ALB, GoAlert, and alert rule manifests.
+- `observability-platform/` contains active runtime gateway, Ingestion NLB, Grafana ALB, and alert rule manifests.
 - `observability-as-a-product/` contains platform governance: service onboarding contracts, 4 levels of instrumentation, gateway policy templates, and Argo CD GitOps templates.
 - `CLAUDE.md` at the repository root is a minimal pointer pointing directly to this file.
 
@@ -287,7 +287,7 @@ Each of these installs cleanly and fails later silently. They are detailed throu
 5. **Workload agent addressing:** Workloads MUST target their node-local agent via Downward API `status.hostIP:4317`. Using the ClusterIP Service silently breaks `k8sattributes` node-filtering, causing (N-1)/N pods to lose Kubernetes metadata.
 6. **OTel Operator Service naming:** Operator exposes collectors as `<collector-name>-collector` (e.g. `otel-collector-agent-collector`), never at the bare name.
 7. **Logstash JSON codec:** OTel Gateway's `kafka/logs` exporter must set `encoding: otlp_json` explicitly. Default is binary protobuf (`otlp_proto`), which Logstash's stock JSON codec drops silently without erroring.
-8. **GoAlert version tags:** Do not pin by Docker tag (v0.34.1 tag does not exist on Docker Hub); pin strictly by sha256 digest (`goalert/goalert@sha256:...`).
+8. **Incident Manager Replication Sets:** Multi-region replication sets in AWS Systems Manager Incident Manager (`aws_ssmincidents_replication_set`) require valid IAM/KMS permissions across all declared regions.
 9. **Go telemetry environment variables:** `OTEL_RESOURCE_ATTRIBUTES` only takes effect if Go builds the resource with `resource.WithFromEnv()`. Bare `resource.New` silences environment variables.
 10. **StorageClass ordering:** Always ensure `cluster-storage/` (gp3) is created before stateful backend charts run via Terraform `depends_on`.
 
@@ -380,7 +380,7 @@ The `mimir-gateway` service injects `X-Scope-OrgID: anonymous`, so neither Grafa
 
 **Logstash → OpenSearch** — the gateway's `kafka/logs` exporter must set `encoding: otlp_json` explicitly; the kafka exporter's default is `otlp_proto` (binary), which Logstash's stock `json` codec cannot decode. Getting this wrong doesn't error anywhere — messages land in Kafka, Logstash's kafka input reads them, and `json` codec parsing just fails silently per-message, so `_index_bootstrap` succeeds, OpenSearch comes up clean, and no documents ever arrive. Check `kubectl logs -n observability -l app=logstash-logstash` for codec errors if OpenSearch Dashboards shows an empty index.
 
-**GoAlert** — publishes `latest` and branch-name tags to Docker Hub but stopped publishing numbered version tags there after v0.31.0 (2023), even though GitHub Releases keeps tagging real versions. Pin by digest (`goalert/goalert@sha256:...`), not by a tag that looks like a version but isn't one — `goalert/goalert:v0.34.1` does not exist on Docker Hub and will fail to pull. GoAlert's admin user and its Alertmanager integration key are both account state created interactively (`goalert add-user` CLI, then the web UI's Setup Wizard) — there is no manifest that creates either declaratively; don't try to invent one.
+**AWS SSM Incident Manager** — AWS-native serverless incident escalation service. Replaces self-hosted GoAlert and eliminates in-cluster stateful PostgreSQL disks. Configured declaratively via Terraform with multi-region replication (`aws_ssmincidents_replication_set`), on-call contacts (`aws_ssmcontacts_contact`), and response plans (`aws_ssmincidents_response_plan`).
 
 **Tempo** (`grafana/tempo`, monolithic) — every setting lives under the top-level `tempo:` key. There is no top-level `storage:` or `traces:` key, so `storage.trace.backend=s3` and `traces.otlp.grpc.enabled=true` are both accepted and both do nothing. Tempo stays on `backend: local`, writing traces to ephemeral pod storage while the S3 bucket stays empty. Use `tempo.storage.trace.*` and `tempo.receivers.*`.
 
@@ -446,16 +446,14 @@ Alert sink       0.01 vCPU /   32 MiB
 OpenSearch       0.10 vCPU /  768 MiB
 OpenSearch Dash  0.05 vCPU /  256 MiB
 Logstash         0.10 vCPU /  512 MiB
-GoAlert + PG     0.10 vCPU /  256 MiB   # goalert 50m/128Mi + postgres 50m/128Mi
 Karpenter        0.25 vCPU /  256 MiB
 plus cert-manager, OTel operator, LB controller, CoreDNS, EBS CSI, node agents
-                 ~2.2 vCPU / ~6.4 GiB total
+                 ~2.1 vCPU / ~6.1 GiB total
 ```
 
-The ELK path (OpenSearch/Dashboards/Logstash) and GoAlert+Postgres together add
-~0.35 vCPU / ~1.8 GiB over the LGTM-only footprint — still comfortably inside
-2× `t3.large` (~3.8 vCPU / ~14.6 GiB allocatable), no node group resize
-needed, but worth knowing before adding a fourth stateful backend on top of it.
+The ELK path (OpenSearch/Dashboards/Logstash) adds ~0.25 vCPU / ~1.5 GiB over
+the LGTM-only footprint — still comfortably inside 2× `t3.large` (~3.8 vCPU / ~14.6 GiB allocatable),
+no node group resize needed, but worth knowing before adding another stateful backend on top of it.
 
 `t3.medium` (~3.2 GiB allocatable) × 2 leaves no room for Mimir compaction spikes or a spot reclaim, and PVC-bound StatefulSets cannot be rescheduled freely. Re-derive this table with `make helm-lint` after changing any values file.
 

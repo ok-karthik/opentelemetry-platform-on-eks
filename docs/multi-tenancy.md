@@ -132,17 +132,17 @@ route:
 receivers:
   - name: payments-pager
     webhook_configs:
-      - url: 'http://goalert:8080/api/v2/generic/webhook?token=PAYMENTS_GOALERT_KEY'
+      - url: 'https://incident-manager.us-east-1.amazonaws.com/webhook/payments-response-plan'
 
   - name: search-pager
     webhook_configs:
-      - url: 'http://goalert:8080/api/v2/generic/webhook?token=SEARCH_GOALERT_KEY'
+      - url: 'https://incident-manager.us-east-1.amazonaws.com/webhook/search-response-plan'
 ```
 
-### Step C: Escalation Schedules (GoAlert / PagerDuty)
-In GoAlert:
-* Create a **"Payments Service"** linked to the Payments on-call rotation with API key `PAYMENTS_GOALERT_KEY`.
-* Create a **"Search Service"** linked to the Search on-call rotation with API key `SEARCH_GOALERT_KEY`.
+### Step C: Escalation Schedules (AWS SSM Incident Manager / PagerDuty)
+In AWS Systems Manager Incident Manager:
+* Create a **"Payments Service Response Plan"** linked to the Payments on-call contact and escalation plan.
+* Create a **"Search Service Response Plan"** linked to the Search on-call contact and escalation plan.
 
 When an alert triggers, only the on-call engineer for the affected team receives SMS, phone calls, or push notifications.
 

@@ -7,7 +7,7 @@
 # ==============================================================================
 
 # 1. Decoupled Emergency Pager (SNS Topic)
-# This topic routes directly to PagerDuty, GoAlert, or SMS without relying on EKS.
+# This topic routes directly to AWS SSM Incident Manager, PagerDuty, or SMS without relying on EKS.
 resource "aws_sns_topic" "observability_emergency_pager" {
   name = "${var.cluster_name}-${var.environment}-emergency-pager"
 }

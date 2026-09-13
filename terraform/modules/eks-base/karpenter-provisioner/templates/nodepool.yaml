@@ -121,7 +121,6 @@ spec:
 #   - Mimir Ingesters & Store-Gateways
 #   - Loki SingleBinary / Ingesters
 #   - Tempo WAL / Ingesters
-#   - GoAlert PostgreSQL
 #
 # Prevents AWS EBS 6-minute Multi-Attach deadlocks and AZ-binding conflicts.
 # Uses consolidationPolicy: WhenEmpty to prevent churn on active storage nodes.
