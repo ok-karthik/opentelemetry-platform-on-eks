@@ -113,7 +113,7 @@ This document details the architectural rationale, trade-offs, and design choice
 
 ### 7. SLO Burn-Rate Alerting in the Observability Layer
 
-**Chosen:** Multi-window, multi-burn-rate SLO alerts ([`mimir-ruler-rules-configmap.yaml`](../observability-platform/k8s-manifests/mimir-ruler-rules-configmap.yaml)) following the Google SRE Workbook pattern: four alerts per service pairing long windows with short windows (14.4x/6x/3x/1x against a 99.5% availability SLO). Fast-burn spikes page on-call via GoAlert; slow-burn budget consumption opens tickets on Alert-Sink.
+**Chosen:** Multi-window, multi-burn-rate SLO alerts ([`mimir-ruler-rules-configmap.yaml`](../observability-platform/mimir-ruler-rules-configmap.yaml)) following the Google SRE Workbook pattern: four alerts per service pairing long windows with short windows (14.4x/6x/3x/1x against a 99.5% availability SLO). Fast-burn spikes page on-call via GoAlert; slow-burn budget consumption opens tickets on Alert-Sink.
 
 **Why in the platform layer:** SLIs are emitted by applications, but SLO thresholds, burn-rate windows, and routing policies are platform-owned and should not require application code changes or redeployments.
 

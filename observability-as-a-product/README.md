@@ -1,4 +1,4 @@
-# Platform as a Product (Paved Roads & Governance)
+# Observability as a Product (Paved Roads & Governance)
 
 This directory contains the product surface of the internal observability platform. It defines the paved roads, onboarding contracts, gateway policy templates, self-service SLO rule generators, and GitOps baselines.
 
@@ -7,7 +7,7 @@ This directory contains the product surface of the internal observability platfo
 ## Directory Structure
 
 ```text
-platform-as-a-product/
+observability-as-a-product/
 ├── onboarding/                     # Paved Road: Service onboarding contract & 4 levels of telemetry
 │   ├── service-onboarding-contract.md # Service metadata, SLO definitions & ownership contract
 │   ├── instrumentation-tiers-and-ebpf.md # Level 1 (eBPF) to Level 4 (SaaS) architecture

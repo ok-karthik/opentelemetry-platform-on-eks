@@ -17,7 +17,7 @@ Although the directories currently live in one repository, reason about them as 
 |---|---|---|
 | **Workloads** | `workloads/` | App-team-owned microservices (`golang-app`, `python-app`) and the per-node DaemonSet collector. |
 | **Observability Platform** | `observability-platform/` | Central gateway runtime manifests (Two-tier Router/Processor, NLB, Grafana ALB, GoAlert, alert rules). |
-| **Platform Product** | `platform-as-a-product/` | Platform product paved roads: onboarding contracts, 4 telemetry tiers, gateway policies, and GitOps baselines. |
+| **Observability Product** | `observability-as-a-product/` | Observability product paved roads: onboarding contracts, 4 telemetry tiers, gateway policies, and GitOps baselines. |
 | **Infrastructure** | `terraform/` | Platform infrastructure: Day-1 EKS base module + Day-2 BYOC observability stack module. |
 | **Architecture** | `docs/` | Deep-dive architectural decisions, capacity planning (2k-200k QPS), multi-tenancy, and roadmap. |
 
@@ -62,7 +62,7 @@ What the tree does not say, and this file is responsible for:
 
 - `workloads/` houses self-contained microservices (Go SDK & Python app) with their code, Dockerfiles, and deployment YAMLs, plus the node agent.
 - `observability-platform/` contains active runtime gateway, Ingestion NLB, Grafana ALB, GoAlert, and alert rule manifests.
-- `platform-as-a-product/` contains platform governance: service onboarding contracts, 4 levels of instrumentation, gateway policy templates, and Argo CD GitOps templates.
+- `observability-as-a-product/` contains platform governance: service onboarding contracts, 4 levels of instrumentation, gateway policy templates, and Argo CD GitOps templates.
 - `CLAUDE.md` at the repository root is a minimal pointer pointing directly to this file.
 
 Ignore local `.terraform/` generated state and modules unless explicitly asked.
@@ -117,7 +117,7 @@ Workloads target their **node-local** agent through the Downward API
 (`status.hostIP`), not the collector's ClusterIP Service — see the k8sattributes
 note below.
 
-Go uses programmatic SDK setup in `workloads/apps-src/golang-app/telemetry.go`.
+Go uses programmatic SDK setup in `workloads/golang-app/telemetry.go`.
 
 When adding language templates, prefer:
 
@@ -141,7 +141,7 @@ For Go, `OTEL_RESOURCE_ATTRIBUTES` only takes effect if the resource is built wi
 
 ### Observability Gateway
 
-`observability-platform/bootstrap-k8s-manifests/otel-collector-gateway.yaml` is the central gateway.
+`observability-platform/otel-collector-gateway.yaml` is the central gateway.
 
 This is where platform policy should live:
 
@@ -156,7 +156,7 @@ Important: if a processor is defined, verify it is also wired into the relevant 
 
 ### Routing and Multitenancy
 
-`observability-platform/platform-as-a-product/gateway-policies/otel-gateway-multitenant.yaml` demonstrates tenant-aware routing.
+`observability-as-a-product/gateway-policies/otel-gateway-multitenant.yaml` demonstrates tenant-aware routing.
 
 The pattern is:
 
@@ -174,7 +174,7 @@ When extending this, keep app-team inputs simple. App repos should declare servi
 
 ### Telemetry Budgeting
 
-`observability-platform/platform-as-a-product/gateway-policies/otel-gateway-tail-sampling.yaml` shows gateway-level cost control.
+`observability-as-a-product/gateway-policies/otel-gateway-tail-sampling.yaml` shows gateway-level cost control.
 
 Use tail sampling to:
 
@@ -187,9 +187,9 @@ At enterprise scale, consider an ingestion gateway plus Kafka/MSK plus processin
 
 ### Dashboards and Alerts
 
-`observability-platform/platform-as-a-product/dashboards-and-alerts/golden-signals/` contains baseline Grafana dashboards for service golden signals.
+`observability-as-a-product/dashboards-and-alerts/golden-signals/` contains baseline Grafana dashboards for service golden signals.
 
-`observability-platform/platform-as-a-product/dashboards-and-alerts/helm-chart/` demonstrates a GitOps model where:
+`observability-as-a-product/dashboards-and-alerts/helm-chart/` demonstrates a GitOps model where:
 
 - Platform owns reusable Helm templates.
 - App teams own a small values file containing service name, team, Slack channel, SLOs, and thresholds.
@@ -226,7 +226,7 @@ Terraform ECR repositories (`terraform/ecr.tf`) have been removed. Application m
 
 ### The 4 Levels of Telemetry Instrumentation
 
-Enterprise observability combines complementary instrumentation tiers (see `observability-platform/platform-as-a-product/onboarding/instrumentation-tiers-and-ebpf.md`):
+Enterprise observability combines complementary instrumentation tiers (see `observability-as-a-product/onboarding/instrumentation-tiers-and-ebpf.md`):
 
 1. **Level 1: Kernel-Space eBPF (OBI DaemonSet):** Zero-code instrumentation inside the Linux kernel. Catches what runtimes miss: instant `OOMKilled` (Exit 137), cross-AZ TCP retransmits, CPU CFS throttling (`runqlat`), and uninstrumented legacy binaries (Nginx, Envoy, CoreDNS).
 2. **Level 2: Runtime Auto-Instrumentation (OTel Operator):** Injected via pod annotations (`instrumentation.opentelemetry.io/inject-*`). Injects runtime hooks for Python, Java, Node.js, and .NET. Captures full application exceptions, stack traces, and database queries (`SELECT * FROM ...`).

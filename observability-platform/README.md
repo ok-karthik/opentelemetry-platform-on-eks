@@ -42,4 +42,4 @@ observability-platform/
 ## Ownership Model
 
 - **Platform Teams Own:** Central collector gateway baselines, routing policies, sampling defaults, backend integrations, and operational alerts.
-- **For Platform Product & Onboarding Contracts:** See [`../platform-as-a-product/`](../platform-as-a-product/).
+- **For Observability Product & Onboarding Contracts:** See [`../observability-as-a-product/`](../observability-as-a-product/).
