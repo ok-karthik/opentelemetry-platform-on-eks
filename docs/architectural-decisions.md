@@ -14,7 +14,7 @@ This document details the architectural rationale, trade-offs, and design choice
 | **Telemetry Backends** | Self-hosted LGTM (S3-backed) | AMP + AMG or commercial SaaS | Managing four stateful open-source systems |
 | **Agent Addressing** | Node-local `status.hostIP` via Downward API | Collector ClusterIP Service | Workloads declare hostIP Downward API block |
 | **Log Architecture** | Loki-first (with optional Kafka $\rightarrow$ OpenSearch) | OpenSearch / ELK for everything | Query syntax differences; dual-path maintenance |
-| **Alerting & Escalation** | Mimir Ruler SLO burn-rate + GoAlert | App-level alerts; unmaintained Grafana OnCall | Manual initial token bootstrap in GoAlert |
+| **Alerting & Escalation** | Mimir Ruler SLO burn-rate + AWS SSM Incident Manager | Self-hosted in-cluster GoAlert; unmaintained Grafana OnCall | Serverless AWS managed service with multi-region replication |
 | **High Availability & Kafka** | Direct LGTM default; Kafka buffer for >25k/sec | Kafka for every environment | Extra infra & broker maintenance at low scale |
 | **GitOps Engine** | Amazon EKS Managed Capability (Argo CD) | Self-hosted Helm Argo CD on worker nodes | Capability hourly rate; offloads Redis & node compute |
 
@@ -113,7 +113,7 @@ This document details the architectural rationale, trade-offs, and design choice
 
 ### 7. SLO Burn-Rate Alerting in the Observability Layer
 
-**Chosen:** Multi-window, multi-burn-rate SLO alerts ([`mimir-ruler-rules-configmap.yaml`](../observability-platform/mimir-ruler-rules-configmap.yaml)) following the Google SRE Workbook pattern: four alerts per service pairing long windows with short windows (14.4x/6x/3x/1x against a 99.5% availability SLO). Fast-burn spikes page on-call via GoAlert; slow-burn budget consumption opens tickets on Alert-Sink.
+**Chosen:** Multi-window, multi-burn-rate SLO alerts ([`mimir-ruler-rules-configmap.yaml`](../observability-platform/mimir-ruler-rules-configmap.yaml)) following the Google SRE Workbook pattern: four alerts per service pairing long windows with short windows (14.4x/6x/3x/1x against a 99.5% availability SLO). Fast-burn spikes page on-call via AWS Systems Manager Incident Manager (SSM Incident Manager); slow-burn budget consumption opens tickets on Alert-Sink.
 
 **Why in the platform layer:** SLIs are emitted by applications, but SLO thresholds, burn-rate windows, and routing policies are platform-owned and should not require application code changes or redeployments.
 
@@ -125,12 +125,17 @@ This document details the architectural rationale, trade-offs, and design choice
 
 ---
 
-### 9. GoAlert for Incident Escalation
+### 9. AWS Systems Manager Incident Manager for Out-of-Band Incident Escalation
 
-**Chosen:** GoAlert (self-hosted) handles on-call rotations and escalation policies for `page`-severity alerts.
+**Chosen:** AWS Systems Manager Incident Manager (SSM Incident Manager) handles on-call escalation policies, automated runbooks, and ChatOps for `page`-severity alerts.
 
-**Rejected — Grafana OnCall:** Self-hosted edition was archived upstream in March 2026.  
-**Rejected — SaaS Trials:** Expire after 14–30 days, breaking reproducibility for demo environments.
+**Why Serverless Incident Escalation:**
+- **Eliminates Circular Dependencies:** Hosting a stateful pager (GoAlert + PostgreSQL) inside the monitored EKS cluster is an architectural anti-pattern. If Kubernetes worker nodes or the EBS CSI driver fail, the paging system dies with the cluster.
+- **Multi-AZ and Multi-Region Resiliency:** SSM Incident Manager runs natively across 3 Availability Zones with a 99.99% SLA. Through its **Replication Set** feature (`aws_ssmincidents_replication_set`), incident state and contacts are replicated cross-region (e.g. `us-east-1` + `us-west-2`) to survive regional cloud outages.
+- **Native AWS ChatOps:** Directly triggers Slack / Microsoft Teams incident cards via AWS Chatbot and can execute automated SSM runbooks.
+
+**Rejected — Self-Hosted GoAlert:** Requires managing PostgreSQL stateful disks in-cluster with circular dependency risks and manual UI user setup.  
+**Rejected — Grafana OnCall:** Self-hosted edition was archived upstream in March 2026.
 
 ---
 

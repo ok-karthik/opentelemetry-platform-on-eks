@@ -8,7 +8,7 @@ This document outlines the strategic roadmap for evolving this OpenTelemetry pla
 
 ### The Problem
 During production outages, on-call engineers suffer from **alert fatigue and tool-hopping**:
-1. An alert fires in GoAlert ("Checkout service high error rate").
+1. An alert fires in Incident Manager ("Checkout service high error rate").
 2. The engineer manually queries Prometheus/AMP to find which endpoint is failing.
 3. The engineer hops to Loki to search for matching stack traces.
 4. The engineer hops to Tempo to find slow spans or broken downstream dependencies.
@@ -24,7 +24,7 @@ Commercial platforms charge heavy premiums for AI correlation (Dynatrace Davis A
 [ Prometheus SLO Alert Fires (14.4x / 6x Burn Rate) ]
                       │
                       ▼
-            [ GoAlert / Webhook ]
+           [ Incident Manager / Webhook ]
                       │
                       ▼
 [ In-Cluster AIOps Investigation Agent (e.g. HolmesGPT) ]
@@ -34,7 +34,7 @@ Commercial platforms charge heavy premiums for AI correlation (Dynatrace Davis A
   └── 4. Query EKS API: Run pod events, restart counts, and OOM status checks
                       │
                       ▼
-     [ Enriched Slack / GoAlert Incident Summary ]
+   [ Enriched Slack / Incident Manager Summary ]
 ```
 
 #### Example Output Posted to Engineers:
@@ -104,7 +104,7 @@ This repository functions as the **Observability Capability Pillar** inside a br
    - When an app developer scaffolds a new service in Backstage, the template automatically injects `telemetry.go` (Go) or OTel Operator pod annotations (Python/Java).
    - Automatically registers service metadata in `service-onboarding-contract.md` (`team`, `service.name`, `target_slo`).
 2. **Backstage Service Catalog Plugin:**
-   - Backstage entity pages automatically link directly to the service's **Grafana Golden Signals Dashboard**, **Tempo Trace Waterfall**, and **GoAlert Escalation Policy**.
+   - Backstage entity pages automatically link directly to the service's **Grafana Golden Signals Dashboard**, **Tempo Trace Waterfall**, and **Incident Escalation Plan**.
 3. **Production Readiness Scorecards:**
    - Checks if the service is emitting valid OTLP spans.
    - Checks if the service has configured multi-window SLO burn-rate alerts.

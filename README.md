@@ -39,7 +39,7 @@ flowchart LR
     end
 
     subgraph S5["5. Store & Correlate"]
-        AMP[("Amazon Managed\nPrometheus (AMP)")]
+        Metrics[("Mimir / AMP\n(Prometheus Metrics)")]
         S3[("S3 Loki & Tempo\n(Free S3 VPC Endpoint)")]
         Grafana["Grafana UI\n(Unified Triage)"]
     end
@@ -48,9 +48,9 @@ flowchart LR
     S2 --> S3
     S3 --> S4
     Kafka -.-> S4
-    S4 --> AMP
+    S4 --> Metrics
     S4 --> S3
-    AMP --> Grafana
+    Metrics --> Grafana
     S3 --> Grafana
 ```
 
@@ -58,7 +58,7 @@ flowchart LR
 2. **Enrich (Node DaemonSet):** The node-local collector receives telemetry via Downward API `status.hostIP:4317`, injects Kubernetes metadata (`k8sattributes`), tails pod logs, and batches data.
 3. **Route & Buffer (Tier 1 Gateway):** Stateless routers use Topology Aware Routing (`PreferSameZone`) to eliminate cross-AZ transfer fees, with optional Kafka buffering to survive 10x traffic bursts.
 4. **Process & Sample (Tier 2/3 Processors):** Consistent hashing converges distributed spans to calculate 100% accurate RED metrics (`spanmetrics`), while tail-sampling drops 90% of healthy traces to save S3 storage.
-5. **Store & Correlate (S3 & Serverless):** Metrics stream to Amazon Managed Prometheus (AMP), logs and sampled traces write to S3 via free Gateway VPC Endpoints ($0.00/GB transfer), unified in Grafana with 1-click trace-to-log navigation.
+5. **Store & Correlate (S3 & LGTM/AMP):** Metrics stream to self-hosted Mimir (or serverless AWS AMP via toggle), logs and sampled traces write to S3 via free Gateway VPC Endpoints ($0.00/GB transfer), unified in Grafana with 1-click trace-to-log navigation.
 
 ---
 
@@ -74,9 +74,9 @@ flowchart LR
 | Application Scale (QPS) | Monthly Telemetry Volume (Spans & Logs) | Commercial SaaS (Datadog / Dynatrace) | This EKS OTel Platform (Optimized with TAR & Spot) | Net Monthly Savings | Annual Savings (% Saved) | Strategic Recommendation |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **< 2,000 QPS** | < 20k events/sec<br/>• < 50M Spans / mo<br/>• < 200 GB Logs | **~$1,500 – $6,200 / mo** | **~$1,000 / mo**<br/>(Cluster base infra + nodes) | Marginal | Operational labor cancels out savings | 🛑 **Stay with SaaS / CloudWatch:** Unit economics do not justify internal platform operations. |
-| **20,000 QPS** | ~200k events/sec<br/>• ~415M Spans / mo<br/>• ~2 TB Logs, 25k Metrics | **~$30,000 – $60,000 / mo** | **~$4,660 / mo**<br/>• Compute: ~$3,080 (50% Spot)<br/>• S3: $350<br/>• Network TAR: $280<br/>• AMP: ~$950 | **+$25,340 – $55,340 / mo** | **+$304,000 – $664,000 / yr**<br/>📉 **84% – 92% Saved** | 🚀 **Build & Deploy:** Massive ROI. Platform team investment pays for itself within 2 months. |
-| **50,000 QPS** | ~500k events/sec<br/>• ~1.0B Spans / mo<br/>• ~5 TB Logs, 60k Metrics | **~$100,000 – $146,000 / mo** | **~$9,710 / mo**<br/>• Compute: ~$6,160<br/>• S3: $850<br/>• Network TAR: $700<br/>• AMP: ~$2,000 | **+$90,290 – $136,290 / mo** | **+$1.08M – $1.63M / yr**<br/>📉 **90% – 93% Saved** | 🚀 **Sweet Spot:** Self-hosting is mandatory. Commercial SaaS contracts require continuous discount battles. |
-| **100,000+ QPS** | ~1,000,000+ events/sec<br/>• ~2.1B Spans / mo<br/>• ~10 TB Logs, 120k Metrics | **$250,000+ / mo**<br/>($3.0M+ / year) | **~$18,320 / mo**<br/>• Compute: ~$12,320<br/>• S3: $1,600<br/>• Network TAR: $1,400<br/>• AMP: ~$3,000 | **+$231,680+ / mo** | **+$2.78M+ / year**<br/>📉 **92.7% Saved** | 🏢 **Enterprise Scale:** Commercial SaaS fails completely. Multi-tier OTel + S3 backends deliver tens of millions in enterprise TCO savings. |
+| **20,000 QPS** | ~200k events/sec<br/>• ~415M Spans / mo<br/>• ~2 TB Logs, 25k Metrics | **~$30,000 – $60,000 / mo** | **~$4,660 / mo**<br/>• Compute: ~$3,080 (50% Spot)<br/>• S3: $350<br/>• Network TAR: $280<br/>• Metrics: ~$950 (AMP / Mimir) | **+$25,340 – $55,340 / mo** | **+$304,000 – $664,000 / yr**<br/>📉 **84% – 92% Saved** | 🚀 **Build & Deploy:** Massive ROI. Platform team investment pays for itself within 2 months. |
+| **50,000 QPS** | ~500k events/sec<br/>• ~1.0B Spans / mo<br/>• ~5 TB Logs, 60k Metrics | **~$100,000 – $146,000 / mo** | **~$9,710 / mo**<br/>• Compute: ~$6,160<br/>• S3: $850<br/>• Network TAR: $700<br/>• Metrics: ~$2,000 (AMP / Mimir) | **+$90,290 – $136,290 / mo** | **+$1.08M – $1.63M / yr**<br/>📉 **90% – 93% Saved** | 🚀 **Sweet Spot:** Self-hosting is mandatory. Commercial SaaS contracts require continuous discount battles. |
+| **100,000+ QPS** | ~1,000,000+ events/sec<br/>• ~2.1B Spans / mo<br/>• ~10 TB Logs, 120k Metrics | **$250,000+ / mo**<br/>($3.0M+ / year) | **~$18,320 / mo**<br/>• Compute: ~$12,320<br/>• S3: $1,600<br/>• Network TAR: $1,400<br/>• Metrics: ~$3,000 (AMP / Mimir) | **+$231,680+ / mo** | **+$2.78M+ / year**<br/>📉 **92.7% Saved** | 🏢 **Enterprise Scale:** Commercial SaaS fails completely. Multi-tier OTel + S3 backends deliver tens of millions in enterprise TCO savings. |
 
 ### Key FinOps Levers
 
@@ -113,7 +113,7 @@ flowchart LR
 * **Dual-Pipeline Spanmetrics & 10% Tail Sampling:** Fans out raw traces into two parallel paths: 100% of spans feed the `spanmetrics` connector for exact RED metrics, while tail-sampling retains 100% of errors and 10% of healthy calls for S3 storage.
 * **Two-Tier Consistent Hashing:** Stateless routers hash `trace_id` to route all spans of a distributed trace to the exact same stateful processor replica, guaranteeing complete trace assembly without data loss.
 * **Serverless Metrics with AMP:** Eliminates 10 stateful Mimir pods, cutting cluster memory requests by **~1.9 GiB** with zero pod maintenance toil.
-* **Google SRE Multi-Window SLO Alerting:** Evaluates 14.4x, 6x, 3x, and 1x error budget burn rates against RED metrics, paging on-call engineers via GoAlert for critical fast burns and ticket sinks for slow burns.
+* **Google SRE Multi-Window SLO Alerting:** Evaluates 14.4x, 6x, 3x, and 1x error budget burn rates against RED metrics, paging on-call engineers via AWS Systems Manager Incident Manager for critical fast burns and ticket sinks for slow burns.
 * **Out-of-Band Meta-Monitoring:** Collector self-telemetry (`:8888`/`:8889`) monitors data drops and backpressure, paired with an external AWS CloudWatch + SNS watchdog for total cluster failure. 👉 **[Read Meta-Monitoring Guide](observability-as-a-product/dashboards-and-alerts/META_MONITORING.md)**.
 * **Multi-Tenancy Access Control & Quotas:** Physical S3 prefix partitioning (`X-Scope-OrgID`), Grafana Organizations mapped to corporate SSO, and FinOps stream limits. 👉 **[Read Multi-Tenancy Architecture](docs/multi-tenancy.md)**.
 
@@ -124,7 +124,7 @@ flowchart LR
 | Path | Contents | Status |
 |---|---|---|
 | [`workloads/`](workloads/) | App-team-owned microservices (Go/Python SDK & manifests) and OTel DaemonSet agent | **Deployed** |
-| [`observability-platform/`](observability-platform/) | Central OTel Gateway, Ingestion NLB, Grafana ALB, GoAlert, and alert sink | **Deployed** |
+| [`observability-platform/`](observability-platform/) | Central OTel Gateway, Ingestion NLB, Grafana ALB, and alert sink | **Deployed** |
 | [`observability-as-a-product/`](observability-as-a-product/) | Service onboarding contracts, 4 levels of instrumentation, sampling policies & GitOps | *Product Paved Roads* |
 | [`terraform/`](terraform/) | Root orchestrator for 1-click full deployment or standalone EKS platform | **Deployed** |
 | [`terraform/modules/eks-base/`](terraform/modules/eks-base/) | Day-1 Base Infrastructure (VPC `10.1.0.0/16`, EKS 1.35, Nodes, Karpenter, cert-manager, gp3) | **Deployed** |
@@ -156,7 +156,6 @@ observability-platform/             # Platform runtime manifests
   grafana-dashboards-configmap.yaml # DEPLOYED  Baseline Grafana dashboards
   mimir-ruler-rules-configmap.yaml  # DEPLOYED  SLO burn-rate rule groups
   alert-sink.yaml                   # DEPLOYED  Ticket-severity echo receiver
-  goalert.yaml                      # DEPLOYED  On-call pager + Postgres
   optional-extensions/              # TEMPLATE  Optional enterprise tier
     kafka-stub.yaml                 #   In-cluster Kafka buffer stub
     opensearch-index-bootstrap-job.yaml # OpenSearch ISM policy
@@ -210,7 +209,7 @@ terraform/                          # Cloud infrastructure & Platform modules
 | **Telemetry Backends** | Serverless AMP + S3 Loki/Tempo | Self-hosting 10-pod Mimir cluster | AMP charges $0.90/10M samples; zero pod toil |
 | **Agent Addressing** | Node-local `status.hostIP` via Downward API | Collector ClusterIP Service | Workloads declare hostIP Downward API block |
 | **Log Architecture** | Loki-first (with optional Kafka $\rightarrow$ OpenSearch) | OpenSearch / ELK for everything | Query syntax differences; dual-path maintenance |
-| **Alerting & Escalation** | Google SRE SLO burn-rate alerts + GoAlert | App-level alerts; unmaintained Grafana OnCall | Manual initial token bootstrap in GoAlert |
+| **Alerting & Escalation** | Google SRE SLO burn-rate alerts + AWS SSM Incident Manager | Self-hosted in-cluster pager (GoAlert); unmaintained Grafana OnCall | Serverless AWS managed service with multi-region replication |
 
 👉 *For deep dives into each choice, upstream Helm chart traps, and operational details, read [Architectural Decisions & Trade-Offs Deep Dive](docs/architectural-decisions.md).*
 
@@ -291,7 +290,7 @@ make k8s-destroy
 * **Unified UI:** Grafana (10.5.15) — single pane of glass linking PromQL, LogQL, and TraceQL.
 * **Gateway Fleet:** Central OTel Gateway — Tier 1 consistent-hash router + Tier 2 tail-sampling processor.
 * **Node Agents:** OTel Collector DaemonSet (`k8sattributes`, `filelog`) + OBI eBPF (kernel TCP & HTTP RED visibility).
-* **Alerting Engine:** GoAlert (on-call pager escalation) + Alert Sink webhook (warning tickets).
+* **Alerting Engine:** AWS Systems Manager Incident Manager (multi-region escalation) + Alert Sink webhook (warning tickets).
 
 👉 *For the full version-pinned Helm release inventory, pod counts, and optional components (Mimir, Kafka, OpenSearch), see **[docs/deployed-components.md](docs/deployed-components.md)**.*
 

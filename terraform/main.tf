@@ -68,6 +68,7 @@ module "observability_stack" {
   deploy_opensearch_stack       = var.deploy_opensearch_stack
   use_amazon_managed_prometheus = var.use_amazon_managed_prometheus
   use_amazon_managed_grafana    = var.use_amazon_managed_grafana
+  enable_ssm_incident_manager   = var.enable_ssm_incident_manager
 
   depends_on = [
     module.eks_base

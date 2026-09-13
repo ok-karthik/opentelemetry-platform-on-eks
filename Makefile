@@ -206,8 +206,6 @@ k8s-deploy-otel:
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/mimir-ruler-rules-configmap.yaml
 	@echo "Applying Alert Sink in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/alert-sink.yaml
-	@echo "Applying GoAlert in $(OTEL_CLUSTER)..."
-	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/goalert.yaml
 	@echo "Applying Ingress for Grafana in $(OTEL_CLUSTER)..."
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/grafana-ingress.yaml
 	@echo "Configuring AMP endpoint in $(OTEL_CLUSTER)..."

@@ -38,6 +38,13 @@ variable "use_amazon_managed_grafana" {
   default     = false
 }
 
+variable "enable_ssm_incident_manager" {
+  description = "Whether to provision AWS Systems Manager Incident Manager for multi-AZ/multi-region on-call escalation"
+  type        = bool
+  default     = true
+}
+
+
 variable "node_group_capacity_type" {
   description = "Pricing model for EKS worker nodes (SPOT or ON_DEMAND)"
   type        = string

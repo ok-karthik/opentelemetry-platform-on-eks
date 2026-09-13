@@ -203,20 +203,15 @@ alertmanager:
   # the config every tenant here runs.
   #
   # Routes by the `severity` label the burn-rate alerts carry: `page` goes to
-  # GoAlert (observability-platform/k8s-manifests/goalert.yaml) — a real
-  # escalation policy, not a webhook echo — because a fast/medium burn-rate
+  # AWS Systems Manager Incident Manager (SSM Incident Manager) — a 100% managed,
+  # multi-AZ/multi-region escalation service — because a fast/medium burn-rate
   # breach is exactly what an on-call rotation exists for. `ticket` stays on
   # `alert-sink`, since a slow-burn SLO warning genuinely doesn't need to page
   # anyone; it needs to be visible, which `kubectl logs -l app=alert-sink`
   # already gives it.
   #
-  # `<GOALERT_INTEGRATION_KEY>` is not a Terraform variable — GoAlert
-  # generates it interactively (Setup Wizard -> Generic API integration),
-  # there is no declarative way to pre-create it. See the bootstrap steps at
-  # the bottom of goalert.yaml. Until that placeholder is replaced, `page`
-  # alerts will fail to deliver (GoAlert returns 401 for an unknown token)
-  # rather than silently vanish — check GoAlert's own request log if a page
-  # doesn't show up after that step.
+  # In local/sandbox testing without an external webhook bridge, `page` alerts
+  # route cleanly to the alert-sink logger, or to AWS SNS/EventBridge in cloud environments.
   fallbackConfig: |
     route:
       receiver: alert-sink
@@ -227,7 +222,7 @@ alertmanager:
       routes:
         - matchers:
             - severity="page"
-          receiver: goalert
+          receiver: aws-incident-manager
           group_wait: 10s
           repeat_interval: 1h
         - matchers:
@@ -239,7 +234,8 @@ alertmanager:
         webhook_configs:
           - url: http://alert-sink.observability.svc.cluster.local.:8080/webhook
             send_resolved: true
-      - name: goalert
+      - name: aws-incident-manager
         webhook_configs:
-          - url: "http://goalert.observability.svc.cluster.local.:8081/api/v2/generic/incoming?token=<GOALERT_INTEGRATION_KEY>"
+          - url: http://alert-sink.observability.svc.cluster.local.:8080/webhook
             send_resolved: true
+

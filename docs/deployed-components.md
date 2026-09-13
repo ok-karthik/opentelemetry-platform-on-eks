@@ -15,7 +15,7 @@ This document provides the full, version-pinned inventory of all deployed worklo
 | **Grafana Tempo** | `grafana/tempo` | `1.24.4` | Monolithic, 1 pod, S3 block storage | Distributed tracing backend, OTLP gRPC ingest (`:4317`) |
 | **Grafana** | `grafana/grafana` | `10.5.15` | 1 pod, sidecar dashboard provisioner | Unified UI with AMP (SigV4), Loki, and Tempo datasources |
 | **Central OTel Gateway** | `otel/opentelemetry-collector-contrib` | `0.156.0` | 2-Tier Fleet: 2× Router Deployments + 3× Processor StatefulSets | Ingress routing, OTTL normalization, tail sampling |
-| **GoAlert** | `goalert/goalert` | `v0.34.1` (digest-pinned) | 1 pod + PostgreSQL StatefulSet | On-call pager escalation for fast-burn critical alerts |
+| **AWS SSM Incident Manager** | AWS Native Managed Service | `aws_ssmincidents_*` | Serverless, Multi-Region Replication Set | On-call pager escalation for fast-burn critical alerts with SMS/Voice |
 | **Alert Sink** | `mendhak/http-https-echo` | `31` | 1 pod | Webhook echo receiver for warning/ticket-severity alerts |
 | **OpenTelemetry Operator** | `opentelemetry-operator` | `0.120.0` | 1 pod | Injects runtime auto-instrumentation and manages Collector CRDs |
 | **cert-manager** | `jetstack/cert-manager` | `v1.21.1` | 3 pods (controller, webhook, cainjector) | Generates internal TLS certificates for OTel Operator webhooks |
