@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: golang-app
-          image: <IMAGE_REGISTRY>/golang-product-service:latest
+          image: okkarthik/golang-product-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

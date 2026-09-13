@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: python-app
-          image: <IMAGE_REGISTRY>/python-product-info-service:latest
+          image: okkarthik/python-product-info-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001
@@ -48,11 +48,6 @@ spec:
                   fieldPath: status.hostIP
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://$(HOST_IP):4317"
-
-            - name: OTEL_SEMCONV_STABILITY_OPT_IN
-              value: "http"
-            - name: OTEL_EXPORTER_OTLP_PROTOCOL
-              value: "grpc"
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "service.namespace=product,service.version=1.0.0,deployment.environment=dev,team=product"
 
