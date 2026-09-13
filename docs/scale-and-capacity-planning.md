@@ -89,9 +89,9 @@ This configuration balances low delivery latency with maximum gzip compression e
 AWS charges **$0.01 per GB in each direction** when network traffic crosses Availability Zones ($0.02/GB round-trip). At 100K QPS, unrouted telemetry costs over **$14,000/month** in cross-AZ network transfer alone.
 
 To eliminate this tax:
-1. Configure Kubernetes Topology Aware Routing on the Tier 2 Router Service:
+1. Configure Kubernetes Topology Aware Routing on the Tier 2 Router Service (native Kubernetes 1.30+ / 1.35+):
 ```yaml
-service:
+spec:
   trafficDistribution: PreferSameZone
 ```
 2. Deploy Tier 2 Routers with `topologySpreadConstraints` across `topology.kubernetes.io/zone` and `minReplicas: 3` (minimum 1 per AZ) to ensure every zone contains a local router replica:
