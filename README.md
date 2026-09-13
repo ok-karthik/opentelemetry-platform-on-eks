@@ -124,7 +124,7 @@ flowchart LR
 | Path | Contents | Status |
 |---|---|---|
 | [`workloads/`](workloads/) | App-team-owned microservices (Go/Python SDK & manifests) and OTel DaemonSet agent | **Deployed** |
-| [`observability-platform/`](observability-platform/) | Central OTel Gateway, Ingestion NLB, Grafana ALB, and alert sink | **Deployed** |
+| [`observability-runtime/`](observability-runtime/) | Central OTel Gateway, Ingestion NLB, Grafana ALB, and alert sink | **Deployed** |
 | [`observability-as-a-product/`](observability-as-a-product/) | Service onboarding contracts, 4 levels of instrumentation, sampling policies & GitOps | *Product Paved Roads* |
 | [`terraform/`](terraform/) | Root orchestrator for 1-click full deployment or standalone EKS platform | **Deployed** |
 | [`terraform/modules/eks-base/`](terraform/modules/eks-base/) | Day-1 Base Infrastructure (VPC `10.1.0.0/16`, EKS 1.35, Nodes, Karpenter, cert-manager, gp3) | **Deployed** |
@@ -149,7 +149,7 @@ workloads/                          # App-team-owned microservices
   python-app/                       # DEPLOYED  Python app source code, Dockerfile, Svc, CR
   otel-collector-daemonset.yaml     # DEPLOYED  Node agent + OBI eBPF (HostNetwork Downward API)
 
-observability-platform/             # Platform runtime manifests
+observability-runtime/              # Platform runtime manifests
   gateways/                         # DEPLOYED  Modular Two-Tier gateway fleet
     00-gateway-rbac.yaml            #   ClusterRole & bindings for discovery
     01-gateway-tier2-router.yaml    #   Tier 2 Stateless Router (Deployment)
@@ -225,8 +225,8 @@ Stated plainly, because these read as features if you only skim the directory tr
 - **Multi-tenant routing** — [`observability-as-a-product/gateway-policies/otel-gateway-multitenant.yaml`](observability-as-a-product/gateway-policies/otel-gateway-multitenant.yaml) is a governance template. The deployed gateway currently routes to a single default tenant.
 - **The dashboard-and-alert generator chart** — [`observability-as-a-product/dashboards-and-alerts/helm-chart/`](observability-as-a-product/dashboards-and-alerts/helm-chart/) is a reusable Helm chart generating Kubernetes Prometheus rule definitions. Deployed golden-signal dashboards run directly in Grafana via ConfigMaps.
 - **GitOps** — [`observability-as-a-product/argocd/`](observability-as-a-product/argocd/) contains an Argo CD App-of-Apps template. Active deployment in this repository is orchestrated directly via Terraform & Makefile.
-- **Gateway autoscaling** — The Tier 2 Router runs with `minReplicas: 3` and `topologySpreadConstraints` (guaranteeing 1 pod per Availability Zone for same-zone routing). Standard CPU HPA is declared, but without Kubernetes `metrics-server` installed, the replica count is effectively fixed at 3. For traffic-spike autoscaling based on incoming spans/sec, an optional KEDA `ScaledObject` template is provided in [`observability-platform/optional-extensions/keda-otel-autoscaler.yaml`](observability-platform/optional-extensions/keda-otel-autoscaler.yaml).
-- **Enterprise Buffering & SIEM (Kafka / OpenSearch)** — Provided as modular optional templates in [`observability-platform/optional-extensions/`](observability-platform/optional-extensions/). Direct ingestion to S3 Loki, Tempo, and AMP is enabled by default.
+- **Gateway autoscaling** — The Tier 2 Router runs with `minReplicas: 3` and `topologySpreadConstraints` (guaranteeing 1 pod per Availability Zone for same-zone routing). Standard CPU HPA is declared, but without Kubernetes `metrics-server` installed, the replica count is effectively fixed at 3. For traffic-spike autoscaling based on incoming spans/sec, an optional KEDA `ScaledObject` template is provided in [`observability-runtime/optional-extensions/keda-otel-autoscaler.yaml`](observability-runtime/optional-extensions/keda-otel-autoscaler.yaml).
+- **Enterprise Buffering & SIEM (Kafka / OpenSearch)** — Provided as modular optional templates in [`observability-runtime/optional-extensions/`](observability-runtime/optional-extensions/). Direct ingestion to S3 Loki, Tempo, and AMP is enabled by default.
 - **Transport security** — Every internal OTLP hop sets `tls.insecure: true`. The ingest NLB is internal, but the Grafana ALB is internet-facing on plain HTTP with no TLS and no SSO (fine for a sandbox/demo; production requires an ACM certificate + AWS Cognito or corporate SAML SSO).
 - **Terraform state** — Local only (`terraform.tfstate`). Production should configure a remote S3 backend with DynamoDB state locking.
 
@@ -269,7 +269,7 @@ Generate traffic through the demo services:
 
 ```bash
 # In Single-Cluster mode (default):
-ALB=$(kubectl --context observability-platform get ingress app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+ALB=$(kubectl --context observability-cluster get ingress app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 
 # In Multi-Cluster mode:
 # ALB=$(kubectl --context apps-workload-cluster-1 get ingress app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')

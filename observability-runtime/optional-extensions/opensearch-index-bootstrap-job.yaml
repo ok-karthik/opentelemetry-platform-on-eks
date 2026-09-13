@@ -25,8 +25,8 @@
 #
 # HOW TO DEPLOY:
 # 1. Apply Terraform with `-var="deploy_opensearch_stack=true"`.
-# 2. Apply the Kafka stub: `kubectl apply -f observability-platform/k8s-manifests/optional-extensions/kafka-stub.yaml`
-# 3. Apply this job: `kubectl apply -f observability-platform/k8s-manifests/optional-extensions/opensearch-index-bootstrap-job.yaml`
+# 2. Apply the Kafka stub: `kubectl apply -f observability-runtime/optional-extensions/kafka-stub.yaml`
+# 3. Apply this job: `kubectl apply -f observability-runtime/optional-extensions/opensearch-index-bootstrap-job.yaml`
 # ==============================================================================
 apiVersion: batch/v1
 kind: Job

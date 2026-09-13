@@ -1,4 +1,4 @@
-# Observability Platform (Runtime)
+# Observability Runtime
 
 This directory contains the platform-team-owned active Kubernetes runtime manifests for the OpenTelemetry observability platform on Amazon EKS.
 
@@ -7,7 +7,7 @@ This directory contains the platform-team-owned active Kubernetes runtime manife
 ## Directory Structure & Organization
 
 ```text
-observability-platform/
+observability-runtime/
 ├── gateways/                         # Modular Two-Tier Central Gateway Fleet
 │   ├── 00-gateway-rbac.yaml          # ClusterRole & ServiceAccount bindings for EndpointSlice discovery
 │   ├── 01-gateway-tier2-router.yaml  # Tier 2 Stateless Router (Deployment with consistent hashing)
@@ -28,8 +28,8 @@ observability-platform/
 ## Core Architecture Patterns
 
 1. **Two-Tier Gateway Topology:**
-   - **Tier 1 (Router - Deployment):** Ingress layer that hashes by `traceID` using the OTel `loadbalancing` exporter.
-   - **Tier 2 (Processor - StatefulSet):** Receives trace-affinity routed spans, enforces `memory_limiter`, filters health check noise, and evaluates `tail_sampling` before exporting to backends.
+   - **Tier 2 (Stateless Router - Deployment):** Ingress layer that hashes by `traceID` (and `service.name`) using the OTel `loadbalancing` exporter across Kubernetes EndpointSlices.
+   - **Tier 3 (Stateful Processor - StatefulSet):** Receives trace-affinity routed spans, enforces `memory_limiter`, computes RED metrics via pre-sampling `spanmetrics`, and evaluates `tail_sampling` before exporting to backends.
 2. **Loki-First Native OTLP Logging:**
    - Applications emit logs over native OTLP (`otlphttp/loki`) into S3-backed Loki for lightweight, cost-effective storage and instant trace-to-log correlation.
 3. **Optional Kafka / OpenSearch Pipeline:**

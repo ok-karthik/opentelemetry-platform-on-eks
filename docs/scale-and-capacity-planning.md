@@ -119,7 +119,7 @@ Karpenter NodePools configure `kubernetes.io/arch: ["amd64", "arm64"]` to levera
 Direct gRPC export from Tier 3 Processors to backend ingesters (Tempo/Loki/Mimir) is safe below 20K–25K QPS. Above 20K QPS (or during flash sales and backend compactions), an intermediate persistent buffer is essential.
 
 #### 1. Why the Local `kafka-stub.yaml` is Only a Developer Sandbox
-The repository provides [`kafka-stub.yaml`](../observability-platform/optional-extensions/kafka-stub.yaml) as a minimal 1-replica pod (1 vCPU, 1 GiB RAM, 10 GiB gp3) for local pipeline validation. **It cannot handle 20,000 QPS.**
+The repository provides [`kafka-stub.yaml`](../observability-runtime/optional-extensions/kafka-stub.yaml) as a minimal 1-replica pod (1 vCPU, 1 GiB RAM, 10 GiB gp3) for local pipeline validation. **It cannot handle 20,000 QPS.**
 
 #### 2. Production Kafka Sizing for 20,000 App QPS
 In a microservices architecture, 1 application request generates ~8 spans and ~2 log lines. At **20,000 QPS**, the observability platform ingests:

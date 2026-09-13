@@ -16,7 +16,7 @@ Although the directories currently live in one repository, reason about them as 
 | Domain | Path | Ownership & Purpose |
 |---|---|---|
 | **Workloads** | `workloads/` | App-team-owned microservices (`golang-app`, `python-app`) and the per-node DaemonSet collector. |
-| **Observability Platform** | `observability-platform/` | Central gateway runtime manifests (Two-tier Router/Processor, NLB, Grafana ALB, alert rules). |
+| **Observability Runtime** | `observability-runtime/` | Central gateway runtime manifests (Two-tier Router/Processor, NLB, Grafana ALB, alert rules). |
 | **Observability Product** | `observability-as-a-product/` | Observability product paved roads: onboarding contracts, 4 telemetry tiers, gateway policies, and GitOps baselines. |
 | **Infrastructure** | `terraform/` | Platform infrastructure: Day-1 EKS base module + Day-2 BYOC observability stack module. |
 | **Architecture** | `docs/` | Deep-dive architectural decisions, capacity planning (2k-200k QPS), multi-tenancy, and roadmap. |
@@ -61,7 +61,7 @@ second copy drifts, and this file is the one agents read most.
 What the tree does not say, and this file is responsible for:
 
 - `workloads/` houses self-contained microservices (Go SDK & Python app) with their code, Dockerfiles, and deployment YAMLs, plus the node agent.
-- `observability-platform/` contains active runtime gateway, Ingestion NLB, Grafana ALB, and alert rule manifests.
+- `observability-runtime/` contains active runtime gateway, Ingestion NLB, Grafana ALB, and alert rule manifests.
 - `observability-as-a-product/` contains platform governance: service onboarding contracts, 4 levels of instrumentation, gateway policy templates, and Argo CD GitOps templates.
 - `CLAUDE.md` at the repository root is a minimal pointer pointing directly to this file.
 
@@ -141,7 +141,7 @@ For Go, `OTEL_RESOURCE_ATTRIBUTES` only takes effect if the resource is built wi
 
 ### Observability Gateway
 
-`observability-platform/otel-collector-gateway.yaml` is the central gateway.
+`observability-runtime/gateways/` contains the central gateway fleet (Tier 2 Router and Tier 3 Processor).
 
 This is where platform policy should live:
 
@@ -294,7 +294,7 @@ Each of these installs cleanly and fails later silently. They are detailed throu
 ### Scope Rules & Repository Integrity
 
 - **Preserve user changes:** Do not revert unrelated working-tree edits.
-- **Maintain domain separation:** Keep the boundary between `workloads/` (application code & manifests), `observability-platform/` (central platform product), and `terraform/` (cloud infra) intact.
+- **Maintain domain separation:** Keep the boundary between `workloads/` (application code & manifests), `observability-runtime/` (central platform runtime), and `terraform/` (cloud infra) intact.
 - **Keep documentation synchronized:** When changing architecture, ports, service names, cluster names, chart versions, or onboarding flows, update `README.md` and this file.
 - **Directory tree updates:** The canonical directory tree lives exclusively in [README.md](../README.md). When adding or renaming directories, update the tree in `README.md` only.
 
@@ -465,9 +465,9 @@ Add `lifecycle.ignore_changes = ["scaling_config[0].desired_size"]` to managed n
 
 When asked how to make this a reusable platform product, favor these additions:
 
-- `observability-platform/onboarding/`: app-team values examples for Go, Python, Java, Node.js, and .NET.
-- `observability-platform/instrumentation-templates/`: language-specific `Instrumentation` CRs and deployment patch examples.
-- `observability-platform/gitops/`: Argo CD or Flux examples showing how workload repos consume platform-owned charts.
+- `observability-as-a-product/onboarding/`: app-team values examples for Go, Python, Java, Node.js, and .NET.
+- `observability-as-a-product/gateway-policies/`: tenant routing, tail sampling, and cost control policies.
+- `observability-as-a-product/argocd/`: Argo CD examples showing how workload repos consume platform-owned charts.
 - A clear service onboarding contract documenting required labels, resource attributes, supported languages, dashboard templates, alert defaults, and escalation routing.
 - A values-driven replacement for hardcoded gateway endpoints in workload collector manifests.
 - A validated gateway pipeline that includes tail sampling where intended.

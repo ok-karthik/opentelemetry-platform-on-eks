@@ -14,7 +14,7 @@
 #   (or AMP via SigV4 proxy).
 #
 # HOW TO DEPLOY:
-#   kubectl apply -f observability-platform/optional-extensions/keda-otel-autoscaler.yaml
+#   kubectl apply -f observability-runtime/optional-extensions/keda-otel-autoscaler.yaml
 # ==============================================================================
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
