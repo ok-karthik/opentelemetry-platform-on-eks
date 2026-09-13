@@ -60,20 +60,25 @@ processors:
         latency: 
           threshold_ms: 500
 
-      # D. Sample normal, healthy HTTP 200 transactions down to 5% for baseline metrics
+      # D. Sample normal, healthy HTTP 200 transactions.
+      # Baseline recommendation: 10.0% for sandbox/moderate traffic (<5k QPS) to prevent
+      # empty dashboard syndrome in Grafana Tempo.
+      # Enterprise recommendation: Dial down to 5.0% (at 20k-50k QPS) or 1.0% (at 100k+ QPS)
+      # to slash S3 trace storage fees by 95-99% while spanmetrics retains 100% RED metrics.
       - name: sample-healthy-traffic
         type: probabilistic
         probabilistic: 
-          sampling_percentage: 5.0
+          sampling_percentage: 10.0
 
   batch:
     send_batch_size: 1024
     timeout: 1s
 
 exporters:
+  # Pushes traces to Tempo over OTLP gRPC with zstd compression (higher throughput and lower CPU than gzip)
   otlp/tempo:
     endpoint: "tempo.observability.svc.cluster.local:4317"
-    compression: gzip
+    compression: zstd
     tls:
       insecure: true
 
