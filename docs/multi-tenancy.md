@@ -36,7 +36,7 @@ Application developers should never have to manually configure authentication to
    ```yaml
    OTEL_RESOURCE_ATTRIBUTES="service.name=checkout,team=payments,tenant.id=payments"
    ```
-2. **Gateway Header Injection:** The central OpenTelemetry Gateway reads `tenant.id` or `team` and uses the `routing` connector (see `observability-platform/gateway-policies/otel-gateway-multitenant.yaml`) to inject the tenant header before sending data to backends:
+2. **Gateway Header Injection:** The central OpenTelemetry Gateway reads `tenant.id` or `team` and uses the `routing` connector (see `observability-as-a-product/gateway-policies/otel-gateway-multitenant.yaml`) to inject the tenant header before sending data to backends:
    - For Payments: `X-Scope-OrgID: payments`
    - For Search: `X-Scope-OrgID: search`
 

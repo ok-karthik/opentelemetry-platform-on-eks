@@ -117,7 +117,7 @@ This repository functions as the **Observability Capability Pillar** inside a br
 Currently, base infrastructure is provisioned in Stage 1, while Helm charts are deployed in Stage 2 via Terraform. The next operational milestone will migrate Stage 2 to native Kubernetes GitOps:
 
 1. **EKS GitOps Engine:** Enable EKS Managed Capabilities for Argo CD (`control-plane-argocd`).
-2. **Argo CD App-of-Apps:** Point Argo CD to `observability-platform/argocd/` to declaratively reconcile:
+2. **Argo CD App-of-Apps:** Point Argo CD to `observability-as-a-product/argocd/` to declaratively reconcile:
    - cert-manager and OTel Operator
    - Loki, Tempo, and Grafana
    - Gateway manifests and routing policies

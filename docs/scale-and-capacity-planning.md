@@ -114,12 +114,66 @@ Karpenter NodePools configure `kubernetes.io/arch: ["amd64", "arm64"]` to levera
 * **1:1 Physical Core Execution:** Eliminates hyperthreading (SMT) contention, providing consistent, jitter-free throughput for high-concurrency Go runtimes and telemetry ingestion.
 * **Up to 40% TCO Savings:** Combined price and instruction throughput improvements deliver substantial operational cost reductions at scale.
 
-### E. Buffer Architecture & Kafka Storage at > 25,000 QPS
-Direct gRPC export from Tier 3 Processors to backend ingesters (Tempo/Loki/Mimir) is safe below 25K QPS. Above 25K QPS:
-* Backend restarts or S3 multi-part upload pauses cause upstream backpressure that exhausts collector memory.
-* Deploy an intermediate Kafka/MSK buffer cluster ([`kafka-stub.yaml`](../observability-platform/optional-extensions/kafka-stub.yaml)) to decouple real-time ingestion from backend persistence.
+### E. Buffer Architecture, Kafka Sizing & The Node Log Rotation Danger
 
-**Kafka Storage Architecture Rules:**
+Direct gRPC export from Tier 3 Processors to backend ingesters (Tempo/Loki/Mimir) is safe below 20K–25K QPS. Above 20K QPS (or during flash sales and backend compactions), an intermediate persistent buffer is essential.
+
+#### 1. Why the Local `kafka-stub.yaml` is Only a Developer Sandbox
+The repository provides [`kafka-stub.yaml`](../observability-platform/optional-extensions/kafka-stub.yaml) as a minimal 1-replica pod (1 vCPU, 1 GiB RAM, 10 GiB gp3) for local pipeline validation. **It cannot handle 20,000 QPS.**
+
+#### 2. Production Kafka Sizing for 20,000 App QPS
+In a microservices architecture, 1 application request generates ~8 spans and ~2 log lines. At **20,000 QPS**, the observability platform ingests:
+* **~200,000 telemetry events/sec** (160k spans/sec + 40k logs/sec).
+* **~150 MB/s to 200 MB/s** raw ingress throughput (~1.2 to 1.6 Gbps network bandwidth).
+
+To sustain this volume in production without consumer lag spirals, size Kafka (or Amazon MSK) as follows:
+
+| Sizing Dimension | Production Specification (20,000 QPS) | Architectural Rationale |
+| :--- | :--- | :--- |
+| **Brokers** | **3× `m7g.2xlarge`** (or `m6i.2xlarge`) | 8 vCPU, 32 GiB RAM per broker. Graviton ARM64 offers 20% lower cost and higher throughput. |
+| **Broker Memory** | **32 GiB RAM per broker** | Kafka relies on Linux kernel OS pagecache for zero-copy `sendfile()` reads; JVM heap is sized to 8 GiB, leaving 24 GiB for OS pagecache. |
+| **Partitions** | **18 to 36 partitions** per topic (`otlp_spans`, `otlp_logs`) | Distributes ~5–10 MB/s per partition across 3 brokers, enabling 18–36 Tier 2/3 OTel Processor pods to read concurrently. |
+| **EBS Storage** | **`storageClassName: gp3`** (3× 500 GiB) | Provision **3,000–6,000 IOPS** and **250–500 MB/s throughput** per volume to prevent disk flush write stalls. |
+| **Replication** | **Replication Factor = 3**, `min.insync.replicas = 2` | Ensures zero data loss across AWS Availability Zones even if one broker restarts. |
+
+#### 3. Where Telemetry Goes Under Backpressure: The Kubelet Node Log Rotation Danger
+
+When backend storage (S3 multi-part uploads) or Tier 2/3 Processors experience latency spikes, backpressure propagates upstream.
+
+```mermaid
+flowchart TD
+    subgraph K8sNode["Kubernetes Worker Node"]
+        App["App Container (20K QPS)"] -->|stdout/stderr| KubeletLog["Node Filesystem\n/var/log/pods/ (50 MiB limit)"]
+        App -->|OTLP gRPC| DS["OTel DaemonSet"]
+        KubeletLog -->|filelog receiver| DS
+    end
+
+    subgraph DirectPath["Danger: Direct Path (No Kafka)"]
+        DS -.->|Backpressure HTTP 429/503| GW["Tier 2/3 Processor Gateway"]
+        GW -.->|S3 Flush Stall| S3Direct[("Amazon S3")]
+        KubeletRot["Kubelet Rotates & DELETES Log Files\n(1,000 logs/s fills 50MB in <60s)"] -.->|PERMANENT LOG LOSS| KubeletLog
+    end
+
+    subgraph KafkaPath["Protection: Kafka Buffer Path"]
+        DS -->|Sub-ms write| IngestGW["Tier 1 Stateless Router"]
+        IngestGW -->|Append-only disk write| Kafka[("Kafka Cluster (24-72h Buffer on EBS)")]
+        Kafka -->|Controlled read rate| ProcessGW["Tier 2/3 Processing Gateway"]
+        ProcessGW --> S3[("Amazon S3")]
+    end
+```
+
+* **The Without-Kafka Failure Mode (Log Rotation Data Loss):**
+  1. If Tier 2/3 Gateways slow down, backpressure forces the node-local DaemonSet's `memory_limiter` to fill its in-memory queue (up to 5,000 batches).
+  2. Once memory is full, the DaemonSet's `filelog` receiver **stops reading** `/var/log/pods/...`.
+  3. Kubelet configures `containerLogMaxSize` (default 10Mi) and `containerLogMaxFiles` (default 5). That means the node only holds **50 MiB of logs per container** before rotating and deleting old files.
+  4. At 20K QPS, a high-throughput microservice generating 1,000 logs/sec (~1 MB/sec) fills 50 MiB in **less than 60 seconds**.
+  5. Kubelet deletes the rotated log files from disk before the collector ever resumes reading them — resulting in **permanent, silent log loss**.
+* **The Kafka Protection Mechanism:**
+  1. The Tier 1 Ingest Gateway performs zero heavy processing (no regex, no tail-sampling). It receives OTLP and appends directly to Kafka in sub-milliseconds.
+  2. Because the Tier 1 gateway never stalls, node-local DaemonSets continuously drain `/var/log/pods/` at maximum I/O speed, preventing kubelet log rotation from ever deleting uncollected logs.
+  3. If Tier 2/3 Gateways or S3 slow down, data accumulates safely in **Kafka's 24–72 hour disk-backed commit log on EBS**. Consumer lag grows, but **zero data is lost**.
+
+#### 4. Kafka Storage Architecture Rules
 * **NEVER use AWS EFS:** Kafka requires POSIX pagecache, kernel memory mapping (`mmap`), and zero-copy `sendfile()` syscalls. NFS/EFS introduces file locking latency and metadata sync delays that desynchronize replicas and lock brokers.
 * **AWS EBS gp3 (Standard):** Single-AZ dynamic PVCs backed by the AWS EBS CSI driver (`storageClassName: gp3`), scheduled on dedicated on-demand nodes (`dedicated: monitoring-stateful`). Durability is achieved via Kafka partition replication factor (RF=3) across 3 AZs.
 * **Local NVMe SSDs (Ultra-Scale >100k QPS):** Direct hardware NVMe instance store (`c7gd`, `m7gd`, `r7gd`, `i4i`) formatted with XFS via Local Persistent Volumes (LPV) for maximum raw IOPS with zero EBS bandwidth limits.

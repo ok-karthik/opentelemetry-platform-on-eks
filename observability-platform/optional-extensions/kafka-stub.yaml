@@ -3,13 +3,22 @@
 # ==============================================================================
 # DEFAULT STATUS:
 # - Disabled/Optional by default. By default, OTel Gateways stream directly to Loki/Tempo/Mimir.
-# - Enabled when deploying the optional Kafka -> Logstash -> OpenSearch log pipeline
-#   or when high-burst buffering (>25,000 events/sec) is required.
+# - SANDBOX NOTICE: This manifest runs a minimal 1-node KRaft stub (1 replica, 1 vCPU, 1 GiB RAM, 10 GiB gp3)
+#   intended strictly for local testing and pipeline validation.
+# - PRODUCTION SIZING (20,000+ App QPS / ~200,000 events/sec):
+#   Do NOT run this single pod at scale. Deploy Amazon MSK or a 3-broker KRaft cluster:
+#   * Brokers: 3x m7g.2xlarge (8 vCPU, 32 GiB RAM, 24 GiB allocated to OS pagecache)
+#   * Partitions: 18 to 36 partitions per topic (otlp_spans, otlp_logs) for parallel OTel reading
+#   * Disks: EBS gp3 provisioned at 3,000–6,000 IOPS and 250–500 MB/s throughput per broker
+#   * Details: See docs/scale-and-capacity-planning.md#e-buffer-architecture-kafka-sizing--the-node-log-rotation-danger
 #
 # PURPOSE & ARCHITECTURAL USE CASE:
 # - Absorbs extreme traffic spikes (5x-10x flash sales, thundering herds) without
 #   collector `memory_limiter` dropping telemetry.
-# - Decouples backend storage maintenance: provides 24-48 hours of disk-backed lag persistence.
+# - Prevents Kubelet Node Log Rotation Data Loss: At 20k QPS, kubelet's 50 MiB log buffer
+#   rotates in <60s. Kafka allows DaemonSets to drain /var/log/pods/ at sub-ms latency,
+#   preventing uncollected logs from being deleted during gateway or S3 slow-downs.
+# - Decouples backend storage maintenance: provides 24-72 hours of disk-backed lag persistence.
 # - Multi-consumer fan-out: allows streaming the same telemetry simultaneously to Loki,
 #   OpenSearch SIEM, and S3 data lakes.
 #
