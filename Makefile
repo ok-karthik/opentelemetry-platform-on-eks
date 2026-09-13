@@ -224,7 +224,7 @@ k8s-deploy-otel:
 	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/otel-collector-gateway.yaml
 	@if [ "$(SINGLE_CLUSTER)" = "false" ]; then \
 		echo "Multi-cluster mode: Exposing Gateway via AWS NLB in $(OTEL_CLUSTER)..."; \
-		kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/svc-nlb-otel-gateway.yaml; \
+		kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/optional-extensions/svc-nlb-otel-gateway.yaml; \
 	else \
 		echo "Single-cluster mode: Gateway routed directly via in-cluster ClusterIP service (NLB skipped)."; \
 	fi

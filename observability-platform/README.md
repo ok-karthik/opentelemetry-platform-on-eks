@@ -9,12 +9,12 @@ This directory contains the platform-team-owned active Kubernetes runtime manife
 ```text
 observability-platform/
 ├── otel-collector-gateway.yaml       # Two-Tier Gateway (Stateless Router + Stateful Processor with Tail Sampling)
-├── svc-nlb-otel-gateway.yaml         # Internal Ingestion NLB (Instance target type, cross-VPC peered)
 ├── grafana-ingress.yaml              # Internet-facing ALB Ingress for Grafana
 ├── grafana-dashboards-configmap.yaml # Baseline Golden Signal & Meta-Monitoring Grafana Dashboards
 ├── mimir-ruler-rules-configmap.yaml  # Google SRE multi-window SLO burn-rate alerts (mounted to Mimir Ruler)
 ├── alert-sink.yaml                   # Webhook receiver for slow-burn ticket-severity alerts
-└── optional-extensions/              # Optional Enterprise Extensions (Kafka buffer & OpenSearch ISM bootstrap)
+└── optional-extensions/              # Optional Enterprise Extensions
+    ├── svc-nlb-otel-gateway.yaml     # Internal Ingestion NLB (Instance target type, cross-VPC peered)
     ├── kafka-stub.yaml               # In-cluster Kafka buffer stub
     ├── opensearch-index-bootstrap-job.yaml # OpenSearch index template + 7-day ISM policy
     └── README.md                     # Instructions for enabling the Kafka -> Logstash -> OpenSearch path

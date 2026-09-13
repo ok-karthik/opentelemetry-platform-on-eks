@@ -151,12 +151,12 @@ workloads/                          # App-team-owned microservices
 
 observability-platform/             # Platform runtime manifests
   otel-collector-gateway.yaml       # DEPLOYED  Two-tier gateway (Router + Processor)
-  svc-nlb-otel-gateway.yaml         # DEPLOYED  Internal Ingestion NLB
   grafana-ingress.yaml              # DEPLOYED  Internet-facing Grafana ALB
   grafana-dashboards-configmap.yaml # DEPLOYED  Baseline Grafana dashboards
   mimir-ruler-rules-configmap.yaml  # DEPLOYED  SLO burn-rate rule groups
   alert-sink.yaml                   # DEPLOYED  Ticket-severity echo receiver
   optional-extensions/              # TEMPLATE  Optional enterprise tier
+    svc-nlb-otel-gateway.yaml       #   Cross-VPC multi-cluster Ingestion NLB
     kafka-stub.yaml                 #   In-cluster Kafka buffer stub
     opensearch-index-bootstrap-job.yaml # OpenSearch ISM policy
 
