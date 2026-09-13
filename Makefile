@@ -220,8 +220,8 @@ k8s-deploy-otel:
 	    --from-literal=endpoint="http://mimir-gateway.observability.svc.cluster.local/api/v1/push" \
 	    --dry-run=client -o yaml | kubectl --context $(OTEL_CLUSTER) apply -f -; \
 	fi
-	@echo "Applying Gateway in $(OTEL_CLUSTER)..."
-	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/otel-collector-gateway.yaml
+	@echo "Applying Gateway Fleet in $(OTEL_CLUSTER)..."
+	kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/gateways/
 	@if [ "$(SINGLE_CLUSTER)" = "false" ]; then \
 		echo "Multi-cluster mode: Exposing Gateway via AWS NLB in $(OTEL_CLUSTER)..."; \
 		kubectl --context $(OTEL_CLUSTER) apply -f $(OBS_MANIFEST_DIR)/optional-extensions/svc-nlb-otel-gateway.yaml; \

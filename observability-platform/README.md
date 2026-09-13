@@ -8,7 +8,10 @@ This directory contains the platform-team-owned active Kubernetes runtime manife
 
 ```text
 observability-platform/
-├── otel-collector-gateway.yaml       # Two-Tier Gateway (Stateless Router + Stateful Processor with Tail Sampling)
+├── gateways/                         # Modular Two-Tier Central Gateway Fleet
+│   ├── 00-gateway-rbac.yaml          # ClusterRole & ServiceAccount bindings for EndpointSlice discovery
+│   ├── 01-gateway-tier2-router.yaml  # Tier 2 Stateless Router (Deployment with consistent hashing)
+│   └── 02-gateway-tier3-processor.yaml # Tier 3 Stateful Processor (Spanmetrics + Tail Sampling + Exporters)
 ├── grafana-ingress.yaml              # Internet-facing ALB Ingress for Grafana
 ├── grafana-dashboards-configmap.yaml # Baseline Golden Signal & Meta-Monitoring Grafana Dashboards
 ├── mimir-ruler-rules-configmap.yaml  # Google SRE multi-window SLO burn-rate alerts (mounted to Mimir Ruler)

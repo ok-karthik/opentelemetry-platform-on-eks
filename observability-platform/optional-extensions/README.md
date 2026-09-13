@@ -14,5 +14,5 @@ These manifests provide pre-configured templates for organizations requiring:
 1. Enable OpenSearch, Logstash, and OpenSearch Dashboards in `terraform/modules/observability-stack/helm-charts.tf`.
 2. Apply `kafka-stub.yaml` to provide the in-cluster Kafka broker.
 3. Apply `opensearch-index-bootstrap-job.yaml` to initialize the index templates and ISM policies.
-4. Enable the `kafka/logs` exporter in `observability-platform/otel-collector-gateway.yaml`.
+4. Enable the `kafka/logs` exporter in `observability-platform/gateways/02-gateway-tier3-processor.yaml`.
 5. Apply `keda-otel-autoscaler.yaml` to autoscale ingress routers on traffic volume.

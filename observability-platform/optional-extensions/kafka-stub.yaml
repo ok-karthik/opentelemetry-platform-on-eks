@@ -34,7 +34,7 @@
 #
 # HOW TO DEPLOY:
 # 1. Apply this stub: `kubectl apply -f observability-platform/optional-extensions/kafka-stub.yaml`
-# 2. Re-enable the `kafka/logs` exporter in `observability-platform/otel-collector-gateway.yaml`
+# 2. Re-enable the `kafka/logs` exporter in `observability-platform/gateways/02-gateway-tier3-processor.yaml`
 # ==============================================================================
 apiVersion: v1
 kind: Service

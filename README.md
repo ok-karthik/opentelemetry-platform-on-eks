@@ -150,7 +150,10 @@ workloads/                          # App-team-owned microservices
   otel-collector-daemonset.yaml     # DEPLOYED  Node agent + OBI eBPF (HostNetwork Downward API)
 
 observability-platform/             # Platform runtime manifests
-  otel-collector-gateway.yaml       # DEPLOYED  Two-tier gateway (Router + Processor)
+  gateways/                         # DEPLOYED  Modular Two-Tier gateway fleet
+    00-gateway-rbac.yaml            #   ClusterRole & bindings for discovery
+    01-gateway-tier2-router.yaml    #   Tier 2 Stateless Router (Deployment)
+    02-gateway-tier3-processor.yaml #   Tier 3 Stateful Processor (Spanmetrics + Tail Sampling)
   grafana-ingress.yaml              # DEPLOYED  Internet-facing Grafana ALB
   grafana-dashboards-configmap.yaml # DEPLOYED  Baseline Grafana dashboards
   mimir-ruler-rules-configmap.yaml  # DEPLOYED  SLO burn-rate rule groups

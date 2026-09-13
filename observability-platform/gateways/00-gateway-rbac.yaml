@@ -1,0 +1,43 @@
+# ==============================================================================
+# OpenTelemetry Gateway RBAC & Service Discovery Permissions
+#
+# Allows the Tier 2 Ingress Router to query the Kubernetes API for EndpointSlices
+# to discover Tier 3 Processor pod IPs for consistent-hashing load balancing.
+# ==============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector-gateway-role
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints", "pods", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-tier2-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector-gateway-role
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector-tier2-router-collector
+    namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-tier3-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector-gateway-role
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector-tier3-processor-collector
+    namespace: observability

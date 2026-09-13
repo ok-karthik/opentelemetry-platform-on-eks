@@ -1,0 +1,161 @@
+# ==============================================================================
+# Tier 2: Stateless Ingress Router (Trace-ID Consistent Hashing)
+# ==============================================================================
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-collector-tier2-router
+  namespace: observability
+spec:
+  mode: deployment
+  autoscaler:
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilization: 80
+  image: otel/opentelemetry-collector-contrib:0.159.0
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: otel-collector-tier2-router-collector
+  
+  # Without an explicit request the operator creates the pods with none, so the
+  # scheduler treats two gateway replicas as free and the HPA has no CPU
+  # baseline to compute targetCPUUtilization against.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  env:
+    # Router Go GC tuning: 80% of 256MiB limit ≈ 200MiB
+    - name: GOMEMLIMIT
+      value: "200MiB"
+    - name: GOGC
+      value: "80"
+  # Stateless Ingress Router: schedules on spot-primary (or on-demand-fallback)
+  # Memory limiter ensures in-flight spans flush in <5s during node draining.
+  config:
+    extensions:
+      health_check:
+        endpoint: "0.0.0.0:13133"
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      # Memory Limiter protects the router from crashing
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+
+      # Ensure service.name exists for load balancer routing_key: service
+      transform/default_service_name:
+        error_mode: ignore
+        metric_statements:
+          - context: resource
+            statements:
+              - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil and attributes["k8s.container.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.deployment.name"]) where attributes["service.name"] == nil and attributes["k8s.deployment.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.pod.name"]) where attributes["service.name"] == nil and attributes["k8s.pod.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.namespace.name"]) where attributes["service.name"] == nil and attributes["k8s.namespace.name"] != nil
+              - set(attributes["service.name"], "infrastructure") where attributes["service.name"] == nil
+        log_statements:
+          - context: resource
+            statements:
+              - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil and attributes["k8s.container.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.deployment.name"]) where attributes["service.name"] == nil and attributes["k8s.deployment.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.pod.name"]) where attributes["service.name"] == nil and attributes["k8s.pod.name"] != nil
+              - set(attributes["service.name"], attributes["k8s.namespace.name"]) where attributes["service.name"] == nil and attributes["k8s.namespace.name"] != nil
+              - set(attributes["service.name"], "unallocated") where attributes["service.name"] == nil
+    exporters:
+      # Trace affinity load balancer - hashes by traceID with zstd compression to Tier 3 Processor
+      loadbalancing/traces:
+        routing_key: traceID
+        protocol:
+          otlp:
+            compression: zstd
+            tls:
+              insecure: true
+        resolver:
+          k8s:
+            service: otel-collector-tier3-processor-collector
+            ports:
+              - 4319
+      # Metrics and Logs load balancer - hashes by service name with zstd compression to Tier 3 Processor
+      loadbalancing/metrics-logs:
+        routing_key: service
+        protocol:
+          otlp:
+            compression: zstd
+            tls:
+              insecure: true
+        resolver:
+          k8s:
+            service: otel-collector-tier3-processor-collector
+            ports:
+              - 4319
+    service:
+      extensions: [health_check]
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: 8888
+      pipelines:
+        # Pipeline 1: Receives traces from Tier 1 Agent / NLB and routes them by TraceID to Tier 3 Processor
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter]
+          exporters: [loadbalancing/traces]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/default_service_name]
+          exporters: [loadbalancing/metrics-logs]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/default_service_name]
+          exporters: [loadbalancing/metrics-logs]
+---
+# ==============================================================================
+# Tier 2: In-Cluster ClusterIP Service with Topology-Aware Routing (K8s 1.35+)
+# Ensures node-local Tier 1 agents route to same-AZ Tier 2 router replicas
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector-tier2-router-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector-tier2-router-collector
+    app.kubernetes.io/component: opentelemetry-collector
+spec:
+  type: ClusterIP
+  # Native Kubernetes 1.30+ / 1.35 Topology-Aware Routing
+  trafficDistribution: PreferSameZone
+  selector:
+    app.kubernetes.io/name: otel-collector-tier2-router-collector
+    app.kubernetes.io/managed-by: opentelemetry-operator
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+    - name: metrics
+      port: 8888
+      targetPort: 8888
+      protocol: TCP

@@ -2,7 +2,7 @@
 # Logstash — Kafka -> OpenSearch, the "L" the Kafka buffer was mocked for.
 #
 # Consumes the `otel-logs-buffer` topic the gateway's `kafka/logs` exporter
-# writes to (see observability-platform/k8s-manifests/otel-collector-gateway.yaml
+# writes to (see observability-platform/gateways/02-gateway-tier3-processor.yaml
 # — that exporter now uses `encoding: otlp_json`, not the collector's default
 # `otlp_proto`, specifically so this pipeline can decode it with Logstash's
 # stock `json` codec instead of needing a custom OTLP protobuf decoder).
