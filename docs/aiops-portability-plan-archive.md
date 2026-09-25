@@ -219,8 +219,8 @@ MinIO stands in for).
 - Real Terraform variables (`s3_endpoint`, `s3_insecure`, `s3_force_path_style`,
   unified across all three charts) wired through `main.tf` → `helm-charts.tf` →
   the `.tftpl` files — no more AWS-only hardcoded endpoints.
-- `local/render/main.tf` calls Terraform's actual `templatefile()` (via
-  `local/render-values.py`) to render the exact same base values — zero
+- `terraform/local/render/main.tf` calls Terraform's actual `templatefile()` (via
+  `terraform/local/render-values.py`) to render the exact same base values — zero
   hand-rolled template parsing.
 - `terraform fmt -check` / `terraform validate` / `make helm-lint` all pass.
 - On a live local cluster: `gp3` StorageClass aliased to the local provisioner,

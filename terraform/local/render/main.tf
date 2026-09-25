@@ -25,7 +25,7 @@ locals {
     sre_agent_webhook_url     = "http://sre-agent.observability.svc.cluster.local.:8080/webhook"
   }
 
-  tftpl_dir = "${path.module}/../../terraform/modules/observability-stack/helm-values"
+  tftpl_dir = "${path.module}/../../modules/observability-stack/helm-values"
 }
 
 output "loki" {

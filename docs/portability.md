@@ -11,7 +11,7 @@ Rather than maintaining separate, drifting Helm values for cloud vs local enviro
 1. **Base Value Templates (`terraform/modules/observability-stack/helm-values/*.tftpl`):**
    - Defines the production-grade collector, gateway, and backend configurations (Loki, Tempo, Mimir, Grafana).
    - Parameterized for S3 endpoints, bucket names, and authentication modes.
-2. **Local Overlay (`local/overlays/*.yaml`):**
+2. **Local Overlay (`terraform/local/overlays/*.yaml`):**
    - Overlays local storage endpoints (MinIO), static credentials, and removes cloud-specific node selectors/tolerations.
 3. **Execution Command:**
    ```bash
@@ -37,7 +37,7 @@ Testing the stack against MinIO revealed critical upstream chart traps that must
 
 ### Trap 3: Credential Injection (Pod Identity vs Static Secrets)
 - **The Issue:** On AWS, stateful pods write to S3 via EKS Pod Identity (`aws_eks_pod_identity_association`) without any long-lived secret keys on disk. Off AWS, pods fail with `NoCredentialProviders` unless credentials are provided.
-- **Resolution:** The local profile creates a Kubernetes Secret (`s3-credentials`) containing `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, and mounts them via `extraEnv` in `local/overlays/*.yaml`.
+- **Resolution:** The local profile creates a Kubernetes Secret (`s3-credentials`) containing `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, and mounts them via `extraEnv` in `terraform/local/overlays/*.yaml`.
 
 ### Trap 4: Dedicated Node Taints & Tolerations
 - **The Issue:** The production Terraform configuration schedules stateful pods (Loki, Tempo, Mimir) onto a dedicated spot/on-demand node group with taint `dedicated=monitoring-stateful:NoSchedule`. On a single-node local cluster, pods remain `Pending` indefinitely.
@@ -49,7 +49,7 @@ Testing the stack against MinIO revealed critical upstream chart traps that must
 
 ### Trap 6: MinIO Storage Trade-off (Ephemeral vs Persistent PVC)
 - **The Issue:** Local development clusters frequently suffer from dangling hostpath locks or un-pruned PVCs across test cycles.
-- **Resolution:** MinIO in `local/minio.yaml` uses ephemeral storage as an intentional tradeoff for local testing. This guarantees instantaneous, zero-residue teardown via `make local-destroy` and avoids local PVC provisioner locks on developer machines. For persistent local testing, a PersistentVolumeClaim bound to the local `gp3` alias StorageClass can be mounted at `/data`.
+- **Resolution:** MinIO in `terraform/local/minio.yaml` uses ephemeral storage as an intentional tradeoff for local testing. This guarantees instantaneous, zero-residue teardown via `make local-destroy` and avoids local PVC provisioner locks on developer machines. For persistent local testing, a PersistentVolumeClaim bound to the local `gp3` alias StorageClass can be mounted at `/data`.
 
 ---
 
@@ -57,7 +57,7 @@ Testing the stack against MinIO revealed critical upstream chart traps that must
 
 ### A. Static & Rendering Verification (Passed)
 1. **Terraform Templatefile Native Rendering:**
-   `python3 local/render-values.py` invokes a dedicated headless Terraform module (`local/render/main.tf`) that calls `templatefile()` natively with MinIO context. Verified zero regex parsing and 100% HCL syntax fidelity.
+   `python3 terraform/local/render-values.py` invokes a dedicated headless Terraform module (`terraform/local/render/main.tf`) that calls `templatefile()` natively with MinIO context. Verified zero regex parsing and 100% HCL syntax fidelity.
 2. **Helm Linting & Template Validation:**
    `make helm-lint` verifies that all charts (Loki 7.2.0, Tempo 1.24.4, Mimir 6.1.0, Grafana 10.5.15) render valid Kubernetes manifests against the parameterized `.tftpl` definitions without error.
 3. **Terraform Configuration Validation:**

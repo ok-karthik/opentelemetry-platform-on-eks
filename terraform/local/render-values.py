@@ -8,8 +8,8 @@ import os
 import subprocess
 import sys
 
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-RENDER_DIR = os.path.join(ROOT_DIR, "local", "render")
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+RENDER_DIR = os.path.join(ROOT_DIR, "terraform", "local", "render")
 OUTPUT_DIR = os.path.join(ROOT_DIR, ".local-render")
 
 COMPONENTS = ["loki", "tempo", "mimir", "grafana"]

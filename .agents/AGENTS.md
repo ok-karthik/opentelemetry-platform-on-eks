@@ -264,7 +264,7 @@ Both demo microservices emit OpenTelemetry stable semantic conventions for HTTP 
 
 This platform supports running both on AWS EKS and fully offline on local or sovereign Kubernetes clusters (OrbStack, kind, k3d) via S3-compatible MinIO:
 - **Zero-Fork Seam:** Base Helm value templates in `terraform/modules/observability-stack/helm-values/*.tftpl` expose unified S3 variables (`s3_endpoint`, `s3_insecure`, `s3_force_path_style`).
-- **Local Profile Automation:** `make local-create` provisions MinIO with automated bucket creation, renders templates natively using `local/render/main.tf` (`templatefile()`), and aliases the local host storage provisioner to `gp3`.
+- **Local Profile Automation:** `make local-create` provisions MinIO with automated bucket creation, renders templates natively using `terraform/local/render/main.tf` (`templatefile()`), and aliases the local host storage provisioner to `gp3`.
 - Complete architectural decisions, chart traps, and MinIO configurations are detailed in `docs/portability.md`.
 
 ## Scale Architecture

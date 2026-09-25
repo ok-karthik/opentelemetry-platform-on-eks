@@ -109,10 +109,10 @@ k8s-all: k8s-create k8s-deploy-all ## Complete end-to-end deployment: creates EK
 	@echo "=== All-in-One Deployment Completed Successfully! ==="
 
 local-create: ## Deploy complete stack locally using kind/k3d/orbstack and MinIO S3
-	@./local/deploy-local.sh
+	@./terraform/local/deploy-local.sh
 
 local-destroy: ## Tear down local stack and clean up
-	@./local/destroy-local.sh
+	@./terraform/local/destroy-local.sh
 
 
 k8s-create: ## Create EKS cluster(s) and deploy Helm charts (use SINGLE_CLUSTER=true for single cluster)
