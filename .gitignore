@@ -22,10 +22,12 @@ terraform.tfstate**
 karpenter-v*.tgz
 .DS_Store
 
-# Compiled Go binaries (`go build` in apps-src drops them next to the source)
+# Compiled Go binaries (`go build` drops them next to the source)
 workloads/apps-src/golang-app/golang-product-service
+workloads/golang-app/golang-product-service
 
 # Python venv and Makefile scratch output
 .venv/
 .tmp-manifests/
 .helm-render/
+.local-render/

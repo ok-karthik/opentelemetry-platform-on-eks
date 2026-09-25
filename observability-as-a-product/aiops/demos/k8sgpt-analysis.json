@@ -1,0 +1,60 @@
+{
+  "provider": "k8sgpt-local",
+  "errors": null,
+  "status": "ProblemDetected",
+  "problems": 4,
+  "results": [
+    {
+      "kind": "Pod",
+      "name": "aiops-demo/oomkill-product-service-654f6d8fdb-pxdch",
+      "error": [
+        {
+          "Text": "the termination reason is OOMKilled exitCode=137 container=memory-eater pod=oomkill-product-service-654f6d8fdb-pxdch",
+          "KubernetesDoc": "Container terminated due to exceeding cgroup memory limit (exitCode=137 SIGKILL).",
+          "Sensitive": []
+        }
+      ],
+      "details": "The container 'memory-eater' was terminated by the Linux kernel OOM Killer because its memory consumption exceeded the configured limit of 15Mi. Recommendation: increase container memory limit or profile memory footprint.",
+      "parentObject": "Deployment/oomkill-product-service"
+    },
+    {
+      "kind": "Pod",
+      "name": "aiops-demo/probe-failure-service-6798f958df-kp4lw",
+      "error": [
+        {
+          "Text": "Readiness probe failed: Get \"http://192.168.194.43:8088/healthz-does-not-exist\": dial tcp 192.168.194.43:8088: connect: connection refused",
+          "KubernetesDoc": "Readiness probe determines if the container is ready to accept network traffic.",
+          "Sensitive": []
+        }
+      ],
+      "details": "Readiness probe is failing because HTTP GET to port 8088 (/healthz-does-not-exist) returned connection refused. The container is running but marked unready (0/1), preventing service traffic routing. Recommendation: correct probe port and path.",
+      "parentObject": "Deployment/probe-failure-service"
+    },
+    {
+      "kind": "Deployment",
+      "name": "aiops-demo/oomkill-product-service",
+      "error": [
+        {
+          "Text": "Deployment aiops-demo/oomkill-product-service has 1 replicas but 0 are available with status running",
+          "KubernetesDoc": "",
+          "Sensitive": []
+        }
+      ],
+      "details": "Deployment has 0 available replicas due to crashing pods.",
+      "parentObject": ""
+    },
+    {
+      "kind": "Deployment",
+      "name": "aiops-demo/probe-failure-service",
+      "error": [
+        {
+          "Text": "Deployment aiops-demo/probe-failure-service has 1 replicas but 0 are available with status running",
+          "KubernetesDoc": "",
+          "Sensitive": []
+        }
+      ],
+      "details": "Deployment has 0 available replicas because the pod fails readiness checks.",
+      "parentObject": ""
+    }
+  ]
+}

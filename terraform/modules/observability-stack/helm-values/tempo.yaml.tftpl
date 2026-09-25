@@ -27,8 +27,15 @@ tempo:
       backend: s3
       s3:
         bucket: ${tempo_bucket}
-        endpoint: s3.${aws_region}.amazonaws.com
+        endpoint: ${s3_endpoint}
         region: ${aws_region}
+%{ if s3_insecure ~}
+        insecure: true
+%{ endif ~}
+%{ if s3_force_path_style ~}
+        forcepathstyle: true
+%{ endif ~}
+
       wal:
         path: /var/tempo/wal
 

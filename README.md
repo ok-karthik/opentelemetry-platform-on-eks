@@ -209,7 +209,7 @@ terraform/                          # Cloud infrastructure & Platform modules
 | **Collector Topology** | DaemonSet agent + central two-tier gateway | Sidecar-per-pod; agent-only | Additional network hop; fleet to operate |
 | **Sampling Strategy** | Tail-based sampling at Tier 2 gateway | Head sampling in the SDK | Stateful gateway; trace-ID affinity required |
 | **Cluster Layout** | Single-cluster (dev) / Peered multi-cluster (prod) | Single cluster for everything | VPC peering complexity; extra control plane |
-| **Telemetry Backends** | Serverless AMP + S3 Loki/Tempo | Self-hosting 10-pod Mimir cluster | AMP charges $0.90/10M samples; zero pod toil |
+| **Telemetry Backends** | Self-hosted Mimir + S3 Loki/Tempo | Serverless AMP | Retains in-cluster ruler-based SLO evaluation; AMP is an opt-in (`use_amazon_managed_prometheus = true`) |
 | **Agent Addressing** | Node-local `status.hostIP` via Downward API | Collector ClusterIP Service | Workloads declare hostIP Downward API block |
 | **Log Architecture** | Loki-first (with optional Kafka $\rightarrow$ OpenSearch) | OpenSearch / ELK for everything | Query syntax differences; dual-path maintenance |
 | **Alerting & Escalation** | Google SRE SLO burn-rate alerts + AWS SSM Incident Manager | Self-hosted in-cluster pager (GoAlert); unmaintained Grafana OnCall | Serverless AWS managed service with multi-region replication |
@@ -231,7 +231,7 @@ The platform is built in two layers, and only the bottom one is AWS-specific.
 | **Managed services:** AMP, SSM Incident Manager + SNS, CloudWatch datasource, `10-aws-infrastructure-triage` dashboard | AWS only | Self-hosted Mimir (already the default: `use_amazon_managed_prometheus = false`), Alertmanager webhook to your pager, drop the CloudWatch datasource |
 | **Terraform:** `terraform/modules/eks-base`, `observability-stack` | AWS only | One Terraform root per provider, same Helm values. The Kubernetes layer is not re-implemented |
 
-**Status:** the Kubernetes layer has only been run on EKS. A non-AWS profile (kind/k3d + MinIO, which also stands in for EU sovereign clouds, since those are managed Kubernetes + S3-compatible storage) is specified in [`PLAN.md`](PLAN.md) Phase 4 and not built yet. Until it is, "portable" means *designed to be*, not *tested on*.
+**Status:** End-to-end verified on AWS EKS and locally via the kind/k3d/orbstack + MinIO portability profile (`make local-create`). All telemetry signals (distributed traces in Tempo, structured logs in Loki, Prometheus metrics in Mimir) flow continuously from workloads, and Mimir Ruler evaluates SLO burn-rate rules and delivers alerts to `alert-sink`. Both environments consume the exact same base Helm values (`terraform/modules/observability-stack/helm-values/*.tftpl`) rendered natively via Terraform `templatefile()`, with local overlays for path-style MinIO S3 endpoints and static credentials. See [docs/portability.md](docs/portability.md) for architectural seams, chart traps, and verified acceptance checklist.
 
 ---
 

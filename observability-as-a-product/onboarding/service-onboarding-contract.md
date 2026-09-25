@@ -98,6 +98,14 @@ team
 
 App repositories should not contain backend endpoint logic for Tempo, Loki, Mimir, Datadog, or other vendors. They should only declare ownership and service identity.
 
+## Platform Reserved Identifiers (AIOps & SRE Agents)
+
+To support autonomous incident diagnosis and guardrailed SRE agents (`sre-agent-guardrails`) without polluting tenant telemetry or requiring dedicated telemetry pipelines:
+- `service.name=sre-agent` is reserved for SRE agent components, RCA workers, and supervisor telemetry.
+- `tenant.id=platform-aiops` is reserved for agent audit log streams (in Loki) and GenAI execution traces/spans (in Tempo).
+
+Telemetry carrying these attributes is recognized by central gateway routing policies and flows into standard observability backends for inspection in Grafana alongside workload telemetry.
+
 ## Default Alert Contract
 
 Default alerts should exist for:

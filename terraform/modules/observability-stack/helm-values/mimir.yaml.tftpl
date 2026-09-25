@@ -80,8 +80,11 @@ mimir:
       backend: s3
       s3:
         bucket_name: ${mimir_blocks_bucket}
-        endpoint: s3.${aws_region}.amazonaws.com
+        endpoint: ${s3_endpoint}
         region: ${aws_region}
+%{ if s3_insecure ~}
+        insecure: true
+%{ endif ~}
 
     # See note (3) above — rule groups come from the ConfigMap mounted at
     # ruler.extraVolumeMounts below, one file per tenant directory. The
@@ -97,8 +100,12 @@ mimir:
       backend: s3
       s3:
         bucket_name: ${mimir_alertmanager_bucket}
-        endpoint: s3.${aws_region}.amazonaws.com
+        endpoint: ${s3_endpoint}
         region: ${aws_region}
+%{ if s3_insecure ~}
+        insecure: true
+%{ endif ~}
+
 
     limits:
       compactor_blocks_retention_period: 168h
@@ -219,6 +226,14 @@ alertmanager:
       group_interval: 5m
       repeat_interval: 4h
       routes:
+%{ if enable_sre_agent_webhook ~}
+        - matchers:
+            - severity=~"page|ticket"
+          receiver: sre-agent-trigger
+          continue: true
+          group_wait: 10s
+          repeat_interval: 1h
+%{ endif ~}
         - matchers:
             - severity="page"
           receiver: aws-incident-manager
@@ -237,4 +252,11 @@ alertmanager:
         webhook_configs:
           - url: http://alert-sink.observability.svc.cluster.local.:8080/webhook
             send_resolved: true
+%{ if enable_sre_agent_webhook ~}
+      - name: sre-agent-trigger
+        webhook_configs:
+          - url: ${sre_agent_webhook_url}
+            send_resolved: true
+%{ endif ~}
+
 

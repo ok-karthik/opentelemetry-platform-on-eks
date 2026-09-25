@@ -13,6 +13,8 @@ locals {
     opensearch_dashboards = "3.8.0"
     logstash              = "8.5.1"
   }
+
+  s3_endpoint = var.s3_endpoint != "" ? var.s3_endpoint : "s3.${var.aws_region}.amazonaws.com"
 }
 
 # ------------------------------------------------------------------------------
@@ -33,8 +35,11 @@ resource "helm_release" "loki" {
 
   values = [
     templatefile("${path.module}/helm-values/loki.yaml.tftpl", {
-      loki_bucket = aws_s3_bucket.loki_data.bucket
-      aws_region  = var.aws_region
+      loki_bucket         = aws_s3_bucket.loki_data.bucket
+      aws_region          = var.aws_region
+      s3_endpoint         = var.s3_endpoint
+      s3_insecure         = var.s3_insecure
+      s3_force_path_style = var.s3_force_path_style
     })
   ]
 
@@ -61,8 +66,11 @@ resource "helm_release" "tempo" {
 
   values = [
     templatefile("${path.module}/helm-values/tempo.yaml.tftpl", {
-      tempo_bucket = aws_s3_bucket.tempo_data.bucket
-      aws_region   = var.aws_region
+      tempo_bucket        = aws_s3_bucket.tempo_data.bucket
+      aws_region          = var.aws_region
+      s3_endpoint         = local.s3_endpoint
+      s3_insecure         = var.s3_insecure
+      s3_force_path_style = var.s3_force_path_style
     })
   ]
 
@@ -93,6 +101,11 @@ resource "helm_release" "mimir" {
       mimir_ruler_bucket        = var.use_amazon_managed_prometheus ? "" : aws_s3_bucket.mimir_ruler[0].bucket
       mimir_alertmanager_bucket = var.use_amazon_managed_prometheus ? "" : aws_s3_bucket.mimir_alertmanager[0].bucket
       aws_region                = var.aws_region
+      s3_endpoint               = local.s3_endpoint
+      s3_insecure               = var.s3_insecure
+      s3_force_path_style       = var.s3_force_path_style
+      enable_sre_agent_webhook  = var.enable_sre_agent_webhook
+      sre_agent_webhook_url     = var.sre_agent_webhook_url
     })
   ]
 }

@@ -1,0 +1,35 @@
+# HolmesGPT Configuration for opentelemetry-platform-on-eks
+# Read-only adopt baseline connecting to platform Mimir, Loki, Tempo, and K8s RBAC
+
+model: "gpt-4o-mini"
+
+# Platform Datasources
+toolsets:
+  prometheus/core:
+    enabled: true
+    config:
+      url: "http://mimir-gateway.observability.svc.cluster.local./prometheus"
+
+  kubernetes/core:
+    enabled: true
+
+  kubernetes/logs:
+    enabled: true
+
+  # Native Loki integration
+  loki:
+    enabled: true
+    config:
+      url: "http://loki.observability.svc.cluster.local.:3100"
+
+  # Native Tempo integration
+  tempo:
+    enabled: true
+    config:
+      url: "http://tempo.observability.svc.cluster.local.:3200"
+
+  # Keep destructive/write toolsets disabled
+  bash:
+    enabled: false
+  kubectl-run:
+    enabled: false

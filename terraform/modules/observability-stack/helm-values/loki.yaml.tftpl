@@ -45,6 +45,12 @@ loki:
       admin: ${loki_bucket}
     s3:
       region: ${aws_region}
+%{ if s3_endpoint != "" ~}
+      endpoint: ${s3_endpoint}
+      insecure: ${s3_insecure}
+      s3ForcePathStyle: ${s3_force_path_style}
+%{ endif ~}
+
 
   limits_config:
     # Required for OTLP log ingestion — the OTel gateway writes resource and

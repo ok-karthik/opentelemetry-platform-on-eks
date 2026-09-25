@@ -1,0 +1,17 @@
+[
+  {
+    "status": "firing",
+    "labels": {
+      "alertname": "ServiceHighErrorRateFastBurn",
+      "severity": "page",
+      "service": "golang-product-service",
+      "namespace": "default",
+      "team": "product"
+    },
+    "annotations": {
+      "summary": "Fast error budget burn rate (14.4x) on golang-product-service",
+      "description": "Service golang-product-service error rate exceeded 5% over 1h/5m windows, consuming 2% of budget in 1 hour."
+    },
+    "startsAt": "2026-09-25T10:00:00Z"
+  }
+]

@@ -69,6 +69,11 @@ module "observability_stack" {
   use_amazon_managed_prometheus = var.use_amazon_managed_prometheus
   use_amazon_managed_grafana    = var.use_amazon_managed_grafana
   enable_ssm_incident_manager   = var.enable_ssm_incident_manager
+  enable_sre_agent_webhook      = var.enable_sre_agent_webhook
+  sre_agent_webhook_url         = var.sre_agent_webhook_url
+  s3_endpoint                   = var.s3_endpoint
+  s3_insecure                   = var.s3_insecure
+  s3_force_path_style           = var.s3_force_path_style
 
   depends_on = [
     module.eks_base

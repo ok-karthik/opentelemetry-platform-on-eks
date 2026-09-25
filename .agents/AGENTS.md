@@ -204,10 +204,10 @@ The OpenTelemetry platform must monitor itself.
 - Mimir Ruler evaluates alerts for backpressure (`otelcol_receiver_refused_*`), data loss (`otelcol_processor_dropped_*`), and silence/down instances.
 ### Amazon Managed Prometheus (AMP) vs. Self-Hosted Mimir
 
-By default, this repository enables Amazon Managed Service for Prometheus via `use_amazon_managed_prometheus = true` in `terraform.tfvars`:
+By default, this repository deploys self-hosted Mimir (`use_amazon_managed_prometheus = false`) to evaluate SLO burn-rate alerts locally via Mimir Ruler. Amazon Managed Service for Prometheus (AMP) is an opt-in alternative (`use_amazon_managed_prometheus = true`):
 
-- **AMP Mode (Default):** Serverless, zero-maintenance metric workspace (`aws_prometheus_workspace.amp`). The OTel Gateway exports via `prometheusremotewrite` authenticated with AWS SigV4 (`sigv4auth` extension backed by EKS Pod Identity). Grafana queries AMP natively with SigV4 enabled. This eliminates 10 stateful pods (distributor, ingester, querier, ruler, alertmanager, compactor, etc.) and reduces the cluster memory request footprint by **~1.9 GiB**.
-- **Mimir Mode (`use_amazon_managed_prometheus = false`):** Deploys self-hosted `mimir-distributed` writing blocks directly to S3 with Replication Factor 1 (`ring.replication_factor: 1`). Use this when full open-source autonomy or local testing without AWS managed service billing is desired.
+- **Mimir Mode (Default, `use_amazon_managed_prometheus = false`):** Deploys self-hosted `mimir-distributed` writing blocks directly to S3 with Replication Factor 1 (`ring.replication_factor: 1`). Evaluates GitOps SLO burn-rate rules locally via Mimir Ruler.
+- **AMP Mode (Opt-in, `use_amazon_managed_prometheus = true`):** Serverless, zero-maintenance metric workspace (`aws_prometheus_workspace.amp`). The OTel Gateway exports via `prometheusremotewrite` authenticated with AWS SigV4 (`sigv4auth` extension backed by EKS Pod Identity). Grafana queries AMP natively with SigV4 enabled. This eliminates 10 stateful pods and reduces the cluster memory request footprint by **~1.9 GiB**. Note: in AMP mode without rule groups ported to `aws_prometheus_rule_group_namespace`, ruler-based SLO alerts do not evaluate in-cluster.
 
 ### Zero-Cost S3 Gateway VPC Endpoints
 
@@ -260,7 +260,7 @@ Default to per-region observability deployments. Avoid unnecessary cross-region 
 - **Terraform**: run `terraform fmt -check` on modified `.tf` files, then `terraform validate` from `terraform/` (or `terraform/single-cluster/`).
 - **Collector configs**: verify every declared receiver, processor, connector, and exporter actually appears in `service.pipelines`. A declared-but-unwired component is inert and produces no error.
 - **Chart versions**: pin them in the `local.chart_versions` map at the top of each `helm-charts.tf`.
-- **Go service**: `cd workloads/apps-src/golang-app && go build ./...`.
+- **Go service**: `cd workloads/golang-app && go build ./...`.
 
 ### Common Commands
 

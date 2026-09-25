@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oomkill-product-service
+  namespace: aiops-demo
+  labels:
+    app: oomkill-product-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oomkill-product-service
+  template:
+    metadata:
+      labels:
+        app: oomkill-product-service
+    spec:
+      containers:
+      - name: memory-eater
+        image: python:3.11-alpine
+        command: ["python3", "-c", "x = bytearray(50 * 1024 * 1024); import time; time.sleep(60)"]
+        resources:
+          limits:
+            memory: "15Mi"
+          requests:
+            memory: "10Mi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: probe-failure-service
+  namespace: aiops-demo
+  labels:
+    app: probe-failure-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: probe-failure-service
+  template:
+    metadata:
+      labels:
+        app: probe-failure-service
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        readinessProbe:
+          httpGet:
+            path: /healthz-does-not-exist
+            port: 8088
+          initialDelaySeconds: 2
+          periodSeconds: 3

@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: holmes-config
+  namespace: observability
+data:
+  config.yaml: |
+    model: "gpt-4o-mini"
+    toolsets:
+      prometheus/core:
+        enabled: true
+        config:
+          url: "http://mimir-gateway.observability.svc.cluster.local./prometheus"
+      kubernetes/core:
+        enabled: true
+      kubernetes/logs:
+        enabled: true
+      loki:
+        enabled: true
+        config:
+          url: "http://loki.observability.svc.cluster.local.:3100"
+      tempo:
+        enabled: true
+        config:
+          url: "http://tempo.observability.svc.cluster.local.:3200"
+      bash:
+        enabled: false
+      kubectl-run:
+        enabled: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: holmesgpt
+  namespace: observability
+  labels:
+    app: holmesgpt
+    role: adopt-baseline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: holmesgpt
+  template:
+    metadata:
+      labels:
+        app: holmesgpt
+        role: adopt-baseline
+    spec:
+      serviceAccountName: sre-agent-reader
+      containers:
+        - name: holmes
+          image: robusta2019/holmesgpt:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-llm-credentials
+                  key: OPENAI_API_KEY
+                  optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /root/.holmes/config.yaml
+              subPath: config.yaml
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: holmes-config

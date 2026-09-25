@@ -79,3 +79,35 @@ variable "admin_access_principals" {
   type        = map(string)
   default     = {}
 }
+
+variable "enable_sre_agent_webhook" {
+  description = "Whether to route firing alerts (severity page/ticket) to the SRE agent trigger endpoint"
+  type        = bool
+  default     = false
+}
+
+variable "sre_agent_webhook_url" {
+  description = "HTTP webhook URL for the SRE agent incident trigger"
+  type        = string
+  default     = "http://sre-agent.observability.svc.cluster.local.:8080/webhook"
+}
+
+variable "s3_endpoint" {
+  description = "Custom S3-compatible storage endpoint (e.g. MinIO minio.observability.svc.cluster.local:9000). Defaults to empty string, which uses standard AWS S3 endpoints."
+  type        = string
+  default     = ""
+}
+
+variable "s3_insecure" {
+  description = "Whether to allow insecure HTTP connections to the S3-compatible endpoint (useful for local MinIO testing)"
+  type        = bool
+  default     = false
+}
+
+variable "s3_force_path_style" {
+  description = "Whether to force path-style S3 URLs (http://s3.host/bucket/key) required by MinIO"
+  type        = bool
+  default     = false
+}
+
+

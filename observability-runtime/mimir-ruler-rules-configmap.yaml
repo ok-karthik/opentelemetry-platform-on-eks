@@ -29,17 +29,33 @@ data:
           - alert: GolangProductServiceErrorBudgetBurnFast
             expr: |
               (
-                sum(rate(http_server_duration_milliseconds_count{service_name="golang-product-service", http_status_code=~"5.."}[1h]))
+                (
+                  sum(rate(http_server_request_duration_seconds_count{job="product/golang-product-service", http_response_status_code=~"5.."}[1h]))
+                  or
+                  sum(rate(http_server_duration_milliseconds_count{service_name="golang-product-service", http_status_code=~"5.."}[1h]))
+                )
                 /
-                sum(rate(http_server_duration_milliseconds_count{service_name="golang-product-service"}[1h]))
+                (
+                  sum(rate(http_server_request_duration_seconds_count{job="product/golang-product-service"}[1h]))
+                  or
+                  sum(rate(http_server_duration_milliseconds_count{service_name="golang-product-service"}[1h]))
+                )
               ) > (14.4 * 0.005)
               and
               (
-                sum(rate(http_server_duration_milliseconds_count{service_name="golang-product-service", http_status_code=~"5.."}[5m]))
+                (
+                  sum(rate(http_server_request_duration_seconds_count{job="product/golang-product-service", http_response_status_code=~"5.."}[5m]))
+                  or
+                  sum(rate(http_server_duration_milliseconds_count{service_name="golang-product-service", http_status_code=~"5.."}[5m]))
+                )
                 /
-                sum(rate(http_server_duration_milliseconds_count{service_name="golang-product-service"}[5m]))
+                (
+                  sum(rate(http_server_request_duration_seconds_count{job="product/golang-product-service"}[5m]))
+                  or
+                  sum(rate(http_server_duration_milliseconds_count{service_name="golang-product-service"}[5m]))
+                )
               ) > (14.4 * 0.005)
-            for: 2m
+            for: 15s
             labels:
               severity: page
               service: golang-product-service
@@ -128,7 +144,7 @@ data:
                 /
                 sum(rate(http_server_request_duration_seconds_count{service_name="python-product-info-service"}[5m]))
               ) > (14.4 * 0.005)
-            for: 2m
+            for: 15s
             labels:
               severity: page
               service: python-product-info-service
