@@ -171,8 +171,8 @@ repo plus a matching line in `sre-agent-guardrails/docs/INTEGRATION.md`.
   `python-product-info-service` in `default` (`workloads/golang-app`,
   `workloads/python-app`) are the eval's fault targets. Their env levers
   (`PRODUCT_INFO_SERVICE_URL`, `PORT`, resource limits) and SLO metric names
-  (Go: `http_server_duration_milliseconds_*` legacy semconv; Python:
-  `http_server_request_duration_seconds_*` stable semconv) are now part of the
+  (both Go and Python emit `http_server_request_duration_seconds_*` stable semconv;
+  Go explicitly sets `OTEL_SEMCONV_STABILITY_OPT_IN=http`) are now part of the
   contract. Renaming any of them is a breaking change for the other repo.
 
 **Done when:** [x] every row of `sre-agent-guardrails/docs/INTEGRATION.md` is true
