@@ -10,10 +10,10 @@ This document provides the full, version-pinned inventory of all deployed worklo
 
 | Component | Helm Chart / Image | Pinned Version | Topology & Sizing | Purpose |
 |---|---|---|---|---|
-| **Amazon Managed Prometheus (AMP)** | AWS Native Workspace | `aws_prometheus_workspace` | Serverless, AWS SigV4 Auth, EKS Pod Identity | Primary Prometheus metrics store with zero pod maintenance |
+| **Grafana Mimir** | `grafana/mimir-distributed` | `6.1.0` | 10 pods (distributor, ingester, querier, ruler, alertmanager, etc.) | Primary Prometheus metrics store writing to S3, with in-cluster Mimir Ruler SLO evaluation |
 | **Grafana Loki** | `grafana/loki` | `7.2.0` | SingleBinary, 1 pod, gp3 cache, S3 chunk storage | Primary log engine, native OTLP ingest (`/otlp`) |
 | **Grafana Tempo** | `grafana/tempo` | `1.24.4` | Monolithic, 1 pod, S3 block storage | Distributed tracing backend, OTLP gRPC ingest (`:4317`) |
-| **Grafana** | `grafana/grafana` | `10.5.15` | 1 pod, sidecar dashboard provisioner | Unified UI with AMP (SigV4), Loki, and Tempo datasources |
+| **Grafana** | `grafana/grafana` | `10.5.15` | 1 pod, sidecar dashboard provisioner | Unified UI with Mimir, Loki, and Tempo datasources |
 | **Central OTel Gateway** | `otel/opentelemetry-collector-contrib` | `0.156.0` | 2-Tier Fleet: 2× Router Deployments + 3× Processor StatefulSets | Ingress routing, OTTL normalization, tail sampling |
 | **AWS SSM Incident Manager** | AWS Native Managed Service | `aws_ssmincidents_*` | Serverless, Multi-Region Replication Set | On-call pager escalation for fast-burn critical alerts with SMS/Voice |
 | **Alert Sink** | `mendhak/http-https-echo` | `31` | 1 pod | Webhook echo receiver for warning/ticket-severity alerts |
@@ -27,7 +27,7 @@ This document provides the full, version-pinned inventory of all deployed worklo
 
 | Component | Helm Chart / Image | Pinned Version | Default State | Activation Flag & Rationale |
 |---|---|---|---|---|
-| **Mimir** | `grafana/mimir-distributed` | `6.1.0` | **Disabled** (Replaced by AMP) | Set `use_amazon_managed_prometheus = false` to run fully open-source Prometheus on S3 (adds 10 stateful pods). |
+| **Amazon Managed Prometheus (AMP)** | AWS Native Workspace | `aws_prometheus_workspace` | **Disabled** (Opt-in alternative) | Set `use_amazon_managed_prometheus = true` for zero-pod serverless metrics (saves ~1.9 GiB RAM; disables in-cluster Mimir Ruler SLOs). |
 | **Kafka Buffer** | `bitnami/kafka` | `3.6` | **Disabled** (Optional Enterprise Buffer) | Uncomment in `helm-charts.tf` and gateway manifests for burst absorption (>25k events/sec) or multi-consumer SIEM fan-out. |
 | **OpenSearch** | `opensearch-project/opensearch` | `3.8.0` | **Disabled** (Optional Log Analytics) | Enable for SIEM security analytics, free-text regex search, and Lucene queries. |
 | **OpenSearch Dashboards** | `opensearch-project/opensearch-dashboards` | `3.8.0` | **Disabled** (Optional Analytics UI) | Web console for OpenSearch index discovery and log visualization. |

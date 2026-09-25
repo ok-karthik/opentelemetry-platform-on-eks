@@ -27,7 +27,7 @@ The platform can be provisioned in two distinct deployment modes controlled via 
 
 1. **Single-Cluster Mode (`SINGLE_CLUSTER=true`, DEFAULT):**
    - Provisions a single EKS cluster (`terraform/`) running both workloads and the observability stack.
-   - Slashes costs from ~$300/mo to **~$150/mo** (1× control plane, 1× NAT gateway, serverless AMP metrics).
+   - Slashes costs from ~$300/mo to **~$150/mo** (1× control plane, 1× NAT gateway, S3-backed Mimir metrics).
    - Fast to deploy and iterate on without cross-VPC peering latency.
 2. **Multi-Cluster Peered Mode (`SINGLE_CLUSTER=false`):**
    - Provisions separate EKS clusters across peered VPCs (`10.0.0.0/16` and `10.1.0.0/16`).
@@ -40,8 +40,8 @@ Application container (workload cluster / namespace)
   -> OpenTelemetry SDK, Operator auto-instrumentation, or OBI eBPF
   -> Node-local OTel Collector DaemonSet (status.hostIP Downward API)
   -> Central Observability Gateway (Tier 1 Router -> Tier 2 Processor)
-  -> Backends: Amazon Managed Prometheus (AMP), S3-backed Loki & Tempo, or optional Kafka/OpenSearch
-  -> Visualization & Escalation: Grafana (SigV4) & AWS SSM Incident Manager
+  -> Backends: S3-backed Mimir, Loki & Tempo, or optional Kafka/OpenSearch
+  -> Visualization & Escalation: Grafana & AWS SSM Incident Manager
 ```
 
 For platform-engineering discussions, use this ownership model:

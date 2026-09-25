@@ -2,7 +2,7 @@
 
 A reference enterprise observability platform on Amazon EKS. Application teams emit vendor-neutral OTLP telemetry to node-local agents and a central two-tier OpenTelemetry Gateway fleet, while the platform team centrally manages enrichment, tail-sampling, routing, retention, and FinOps cost attribution.
 
-By coupling tail-based sampling, S3-backed storage (Loki, Tempo, Mimir), and serverless metric ingestion (AMP), this platform slashes observability spend by **70% to 90%** compared to commercial SaaS without vendor lock-in. It also provides an **AI-ready diagnostic target** (read-only RBAC, additive alert routing, zero-code triage via [`k8sgpt`](https://k8sgpt.ai), and [`HolmesGPT`](https://github.com/robusta-dev/holmesgpt) baselines) for autonomous agents such as the upcoming [`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails) *(coming soon / in development)*.
+By coupling tail-based sampling, S3-backed storage (Loki, Tempo, Mimir), and in-cluster SLO alerting via Mimir Ruler, this platform slashes observability spend by **70% to 90%** compared to commercial SaaS without vendor lock-in. It also provides an **AI-ready diagnostic target** (read-only RBAC, additive alert routing, zero-code triage via [`k8sgpt`](https://k8sgpt.ai), and [`HolmesGPT`](https://github.com/robusta-dev/holmesgpt) baselines) for autonomous agents such as the upcoming [`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails) *(coming soon / in development)*.
 
 ---
 
@@ -125,7 +125,7 @@ flowchart LR
 | **Trace Correlation** | Manual text searches; no native span links | **1-Click TraceID navigation**: clicking a log line opens the Tempo trace waterfall |
 
 #### 2. When is Kafka actually needed vs. Direct Mode?
-* **Direct Ingestion (Default, $0 extra cost, <50ms latency):** In 95% of deployments, OTel Gateways push directly to Loki, Tempo, and AMP with in-memory retry queues. Stay with direct mode if traffic is below 20K QPS.
+* **Direct Ingestion (Default, $0 extra cost, <50ms latency):** In 95% of deployments, OTel Gateways push directly to Loki, Tempo, and Mimir with in-memory retry queues. Stay with direct mode if traffic is below 20K QPS.
 * **Kafka Buffer (Enabled for >20K QPS, High Bursts, or SIEM):**
   1. **Prevents Kubelet Node Log Rotation Data Loss:** At 20k QPS, kubelet's node log buffer (50 MiB per container) fills and rotates in <60 seconds. Kafka allows DaemonSets to drain logs at sub-millisecond latency, preventing uncollected logs from being deleted during gateway or S3 slow-downs.
   2. **Extreme Outage & Spike Smoothing:** Absorbs 5x–10x traffic surges with 24–72h durable disk persistence on EBS gp3.
@@ -299,7 +299,7 @@ Stated plainly, because these read as features if you only skim the directory tr
 - **The dashboard-and-alert generator chart** — [`observability-as-a-product/dashboards-and-alerts/helm-chart/`](observability-as-a-product/dashboards-and-alerts/helm-chart/) is a reusable Helm chart generating Kubernetes Prometheus rule definitions. Deployed golden-signal dashboards run directly in Grafana via ConfigMaps.
 - **GitOps** — [`observability-as-a-product/argocd/`](observability-as-a-product/argocd/) contains an Argo CD App-of-Apps template. Active deployment in this repository is orchestrated directly via Terraform & Makefile.
 - **Gateway autoscaling** — The Tier 2 Router runs with `minReplicas: 3` and `topologySpreadConstraints` (guaranteeing 1 pod per Availability Zone for same-zone routing). Standard CPU HPA is declared, but without Kubernetes `metrics-server` installed, the replica count is effectively fixed at 3. For traffic-spike autoscaling based on incoming spans/sec, an optional KEDA `ScaledObject` template is provided in [`observability-runtime/optional-extensions/keda-otel-autoscaler.yaml`](observability-runtime/optional-extensions/keda-otel-autoscaler.yaml).
-- **Enterprise Buffering & SIEM (Kafka / OpenSearch)** — Provided as modular optional templates in [`observability-runtime/optional-extensions/`](observability-runtime/optional-extensions/). Direct ingestion to S3 Loki, Tempo, and AMP is enabled by default.
+- **Enterprise Buffering & SIEM (Kafka / OpenSearch)** — Provided as modular optional templates in [`observability-runtime/optional-extensions/`](observability-runtime/optional-extensions/). Direct ingestion to S3-backed Loki, Tempo, and Mimir is enabled by default.
 - **Transport security** — Every internal OTLP hop sets `tls.insecure: true`. The ingest NLB is internal, but the Grafana ALB is internet-facing on plain HTTP with no TLS and no SSO (fine for a sandbox/demo; production requires an ACM certificate + AWS Cognito or corporate SAML SSO).
 - **Terraform state** — Local only (`terraform.tfstate`). Production should configure a remote S3 backend with DynamoDB state locking.
 
@@ -315,7 +315,7 @@ Stated plainly, because these read as features if you only skim the directory tr
 
 ### Cost Warning
 
-* **Single-Cluster Mode (`SINGLE_CLUSTER=true`, default):** Roughly **~$150/month (~$0.20/hour)**. Uses 1× EKS control plane, 1× NAT gateway, serverless AMP metrics, 2× `t3.large` spot nodes, and free S3 Gateway VPC endpoints.
+* **Single-Cluster Mode (`SINGLE_CLUSTER=true`, default):** Roughly **~$150/month (~$0.20/hour)**. Uses 1× EKS control plane, 1× NAT gateway, S3-backed Mimir metrics, 2× `t3.large` spot nodes, and free S3 Gateway VPC endpoints.
 * **Multi-Cluster Peered Mode (`SINGLE_CLUSTER=false`):** Roughly **~$300/month (~$0.40/hour)**. Uses 2× EKS control planes, 2× NAT gateways, cross-VPC peering, and 2 separate node groups.
 
 `us-east-1` list prices, excluding data transfer; spot prices vary. **Destroy it when you are done.**

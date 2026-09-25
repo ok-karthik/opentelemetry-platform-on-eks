@@ -70,16 +70,16 @@ This document details the architectural rationale, trade-offs, and design choice
 
 ---
 
-### 4. Storage Architecture: Serverless AMP + S3 Loki/Tempo
+### 4. Storage Architecture: S3-Backed LGTM Stack (Mimir, Loki, Tempo) + Serverless AMP Option
 
-**Chosen:** Amazon Managed Prometheus (AMP) for serverless metrics, paired with Grafana Loki and Grafana Tempo backed by Amazon S3 via free S3 Gateway VPC Endpoints.
+**Chosen:** Self-hosted Grafana Mimir for metrics, paired with Grafana Loki (logs) and Grafana Tempo (traces) writing directly to Amazon S3 via zero-cost S3 Gateway VPC Endpoints ($0.00/GB data transfer).
 
-**Why Serverless AMP over Self-Hosted Mimir:**
-- Eliminates 10 stateful Mimir microservice pods (distributor, ingester, querier, ruler, alertmanager, compactor), saving **~1.9 GiB RAM** on worker nodes.
-- Zero maintenance: no ring compactions, no etcd coordination, no persistent disk management for metric blocks.
-- Authenticates natively via AWS SigV4 through EKS Pod Identity.
+**Why Self-Hosted Mimir as Default:**
+- **In-Cluster SLO Burn-Rate Evaluation:** Mimir Ruler evaluates multi-window Google SRE SLO alerts locally from raw RED metrics without requiring cloud vendor metric rule extensions.
+- **AIOps & SRE Agent Integration:** Mimir Alertmanager routes alerts directly to the SRE agent webhook (`http://sre-agent.sre-agent.svc.cluster.local:8000/webhook/alert`) with `continue: true`.
+- **Portability & Local Mode:** Runs identically on AWS EKS and on local clusters (OrbStack, kind, k3d) backed by MinIO S3 object storage.
 
-*(Note: Self-hosted Mimir remains fully supported as an opt-in alternative via `use_amazon_managed_prometheus = false` for local or non-AWS deployments).*
+*(Note: Amazon Managed Service for Prometheus (AMP) remains fully supported as a serverless opt-in alternative via `use_amazon_managed_prometheus = true` to save ~1.9 GiB RAM on worker nodes, with the trade-off that in-cluster ruler rules do not evaluate).*
 
 #### Key Upstream Chart Traps Documented:
 
