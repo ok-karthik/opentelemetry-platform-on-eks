@@ -4,6 +4,7 @@ Contains standardized dashboard templates based on SRE's Four Golden Signals (La
 
 * **Go Service**: [go-service-dashboard.json](go-service-dashboard.json)
 * **Python Service**: [python-service-dashboard.json](python-service-dashboard.json)
+* **Service SLOs & Error Budgets**: [service-slo-error-budget-dashboard.json](service-slo-error-budget-dashboard.json)
 
 ## How This Scales
 

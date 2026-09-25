@@ -218,6 +218,23 @@ terraform/                          # Cloud infrastructure & Platform modules
 
 ---
 
+## Portability: other clouds, EU sovereign clouds, on-prem
+
+The platform is built in two layers, and only the bottom one is AWS-specific.
+
+| Layer | Portable? | What changes off AWS |
+|---|---|---|
+| **Telemetry contract:** OTLP from apps, `service.name`/`tenant.id` semantics, the 4-tier instrumentation model | Yes, as is | Nothing. Apps never learn which backend they write to |
+| **Kubernetes layer:** OTel operator, DaemonSet agents, two-tier gateway fleet, OBI eBPF, Loki/Tempo/Mimir Helm charts, Grafana dashboards, SLO burn-rate rules | Yes, as is | Nothing, except the ingest `Service` annotations (the NLB in `optional-extensions/` becomes that provider's LB, or MetalLB on-prem) |
+| **Object storage:** Loki/Tempo/Mimir chunks | Yes | Bucket endpoint + credentials. Any S3-compatible store works (MinIO on-prem; STACKIT, IONOS, OVHcloud, Hetzner object storage). Azure Blob and GCS are native backends in all three charts |
+| **Identity:** Pod Identity / IAM roles for the S3 writers | Provider-specific | Workload Identity (GKE/AKS) or static S3 keys in a Secret (MinIO / sovereign clouds) |
+| **Managed services:** AMP, SSM Incident Manager + SNS, CloudWatch datasource, `10-aws-infrastructure-triage` dashboard | AWS only | Self-hosted Mimir (already the default: `use_amazon_managed_prometheus = false`), Alertmanager webhook to your pager, drop the CloudWatch datasource |
+| **Terraform:** `terraform/modules/eks-base`, `observability-stack` | AWS only | One Terraform root per provider, same Helm values. The Kubernetes layer is not re-implemented |
+
+**Status:** the Kubernetes layer has only been run on EKS. A non-AWS profile (kind/k3d + MinIO, which also stands in for EU sovereign clouds, since those are managed Kubernetes + S3-compatible storage) is specified in [`PLAN.md`](PLAN.md) Phase 4 and not built yet. Until it is, "portable" means *designed to be*, not *tested on*.
+
+---
+
 ## What Is Not Implemented
  
 Stated plainly, because these read as features if you only skim the directory tree:
