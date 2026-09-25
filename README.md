@@ -1,8 +1,8 @@
 # OpenTelemetry Observability Platform on EKS
 
-A reference enterprise observability platform on Amazon EKS: application teams emit vendor-neutral OTLP telemetry to node-local agents and a central two-tier OpenTelemetry Gateway fleet, while the platform team centrally manages enrichment, sampling, routing, retention, and FinOps costs.
+A reference enterprise observability platform on Amazon EKS. Application teams emit vendor-neutral OTLP telemetry to node-local agents and a central two-tier OpenTelemetry Gateway fleet, while the platform team centrally manages enrichment, tail-sampling, routing, retention, and FinOps cost attribution.
 
-By coupling tail-based sampling, S3 storage tiers, and serverless metric ingestion, this platform slashes observability spend by **70% to 90%** compared to commercial SaaS while eliminating vendor lock-in.
+By coupling tail-based sampling, S3-backed storage (Loki, Tempo, Mimir), and serverless metric ingestion (AMP), this platform slashes observability spend by **70% to 90%** compared to commercial SaaS without vendor lock-in. It also provides an **AI-ready diagnostic target** (read-only RBAC, additive alert routing, zero-code triage via [`k8sgpt`](https://k8sgpt.ai), and [`HolmesGPT`](https://github.com/robusta-dev/holmesgpt) baselines) for autonomous agents such as the upcoming [`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails) *(coming soon / in development)*.
 
 ---
 

@@ -100,7 +100,7 @@ App repositories should not contain backend endpoint logic for Tempo, Loki, Mimi
 
 ## Platform Reserved Identifiers (AIOps & SRE Agents)
 
-To support autonomous incident diagnosis and guardrailed SRE agents (`sre-agent-guardrails`) without polluting tenant telemetry or requiring dedicated telemetry pipelines:
+To support autonomous incident diagnosis and guardrailed SRE agents ([`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails), upcoming / in development) without polluting tenant telemetry or requiring dedicated telemetry pipelines:
 - `service.name=sre-agent` is reserved for SRE agent components, RCA workers, and supervisor telemetry.
 - `tenant.id=platform-aiops` is reserved for agent audit log streams (in Loki) and GenAI execution traces/spans (in Tempo).
 
