@@ -1,6 +1,6 @@
 # AIOps Phase 1: k8sgpt Cluster Diagnosis Demo
 
-This demo validates **Phase 1 of PLAN.md**: evaluating open-source CNCF sandbox tool `k8sgpt` against the Kubernetes cluster before building custom agent tooling.
+This demo validates **[Phase 1 of the AIOps & Portability Plan](../../../docs/aiops-portability-plan-archive.md)**: evaluating open-source CNCF sandbox tool `k8sgpt` against the Kubernetes cluster before building custom agent tooling.
 
 ## Why k8sgpt (Build vs Adopt)
 

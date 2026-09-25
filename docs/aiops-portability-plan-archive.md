@@ -1,12 +1,9 @@
-# PLAN.md — platform side: AIOps readiness, adopt baseline, FinOps, portability
+# PLAN Archive — AIOps Readiness, Adopt Baseline, FinOps, Portability
 
-> **Executor instructions (read first).** This file is the plan for this repo.
-> Work through the phases **in order: 1 → 2 → 2b → 3 → 4**, one phase per session.
-> Before writing anything, read `.agents/AGENTS.md` (repo rules and chart traps).
-> Stop after each phase and tick its **Done when**. Do not start the agent itself
-> here: it lives in `sre-agent-guardrails`. The only cross-repo duty is in
-> "Who owns what": if you rename something `sre-agent-guardrails/docs/INTEGRATION.md`
-> cites, update that file too. Do not commit or push unless the user asks.
+> **Archived Milestone Record.** All phases (1, 2, 2b, 3, and 4) in this plan were implemented, end-to-end verified, and closed on 2026-09-25.
+> This document preserves the architectural decisions, cross-repo contract boundaries with `sre-agent-guardrails`,
+> Guiding principles, and the build-vs-adopt evaluation matrix.
+> Active operational rules and chart traps are maintained in [`.agents/AGENTS.md`](../.agents/AGENTS.md).
 >
 > **Status (2026-09-25):** All phases (1, 2, 2b, 3, and 4) are fully implemented and end-to-end verified — ticked and closed. Phase 4 functional verification on local cluster (Orbstack/MinIO) passed all 4 acceptance criteria: all pods Ready (Loki, Tempo, Mimir, Grafana), demo apps receiving traffic, traces/logs/metrics validated via Grafana datasource UIDs, and 5xx SLO burn-rate alerts evaluated by Mimir Ruler and delivered to alert-sink.
 > All contract items in `sre-agent-guardrails/docs/INTEGRATION.md` are aligned with active code.
@@ -121,7 +118,7 @@ Used **k8sgpt** (OSS, CNCF sandbox) unmodified against the cluster — zero
 custom code. Injected an OOMKilled pod and a broken readiness probe, then
 confirmed `k8sgpt analyze` catches both in plain English.
 
-**Deliverables:** [`k8sgpt-terminal-session.md`](observability-as-a-product/aiops/demos/k8sgpt-terminal-session.md), [`k8sgpt-analysis.json`](observability-as-a-product/aiops/demos/k8sgpt-analysis.json), under `observability-as-a-product/aiops/demos/`.
+**Deliverables:** [`k8sgpt-terminal-session.md`](../observability-as-a-product/aiops/demos/k8sgpt-terminal-session.md), [`k8sgpt-analysis.json`](../observability-as-a-product/aiops/demos/k8sgpt-analysis.json), under `observability-as-a-product/aiops/demos/`.
 
 **Interview line:** "I evaluated k8sgpt against the cluster before building
 anything custom — no point reimplementing AI-assisted `kubectl describe`
@@ -200,10 +197,10 @@ faults, and here's where each one won."
 `observability-as-a-product/aiops/finops/cost-analyzer.py` queries Mimir for
 per-tenant ingest volume (`otelcol_receiver_accepted_*` by `tenant_id`), parses
 the real PromQL vector response, flags anomalous week-over-week growth, and
-generates [`weekly-cost-summary.md`](observability-as-a-product/aiops/finops/weekly-cost-summary.md).
+generates [`weekly-cost-summary.md`](../observability-as-a-product/aiops/finops/weekly-cost-summary.md).
 Falls back to a clearly-labeled `--simulate` baseline dataset when Mimir is
 unreachable or has no data yet — it does not silently fabricate a "live" result.
-Verified with an automated unit suite ([`test_cost_analyzer.py`](observability-as-a-product/aiops/finops/test_cost_analyzer.py))
+Verified with an automated unit suite ([`test_cost_analyzer.py`](../observability-as-a-product/aiops/finops/test_cost_analyzer.py))
 that exercises live-vector parsing, connection-failure fallback, and `--simulate`.
 
 ---
@@ -229,7 +226,7 @@ MinIO stands in for).
 - On a live local cluster: `gp3` StorageClass aliased to the local provisioner,
   MinIO + bucket-init job come up, cert-manager and the OTel Operator install,
   and the Loki pod schedules with its PVC bound.
-- Details and chart traps: [`docs/portability.md`](docs/portability.md).
+- Details and chart traps: [`portability.md`](./portability.md).
 
 **End-to-end functional verification passed (2026-09-25):**
 1. **Pod Health:** All 24+ observability and workload pods reach `Running` / `Ready` (`loki-0` 2/2, `tempo-0` 1/1, all 10 Mimir microservices 1/1, `grafana` 2/2, SRE `alert-sink` 1/1).

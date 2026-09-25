@@ -1,6 +1,6 @@
 # AIOps Phase 3: FinOps Tenant Cost Correlation
 
-This module implements **Phase 3 of PLAN.md**: an automated FinOps and tenant cost-correlation agent that leverages the platform's multi-tenant telemetry pipeline (`tenant.id`).
+This module implements **[Phase 3 of the AIOps & Portability Plan](../../../docs/aiops-portability-plan-archive.md)**: an automated FinOps and tenant cost-correlation agent that leverages the platform's multi-tenant telemetry pipeline (`tenant.id`).
 
 ## Platform Mechanism
 

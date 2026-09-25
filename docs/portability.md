@@ -1,6 +1,6 @@
 # Platform Portability: AWS EKS vs Local & Sovereign Cloud Profile
 
-This document details the **Portability Profile (Phase 4 of PLAN.md)**, demonstrating how this OpenTelemetry observability platform runs both on AWS EKS and on any standard Kubernetes cluster (kind, k3d, orbstack, Hetzner, STACKIT, OVHcloud) using S3-compatible object storage (MinIO).
+This document details the **Portability Profile ([Phase 4 of the AIOps & Portability Plan](aiops-portability-plan-archive.md))**, demonstrating how this OpenTelemetry observability platform runs both on AWS EKS and on any standard Kubernetes cluster (kind, k3d, orbstack, Hetzner, STACKIT, OVHcloud) using S3-compatible object storage (MinIO).
 
 ---
 

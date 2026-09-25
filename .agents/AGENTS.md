@@ -9,17 +9,17 @@ This file gives AI agents the project mental model, repo structure, operational 
 
 ## Project Model & Domain Layout
 
-Treat this repository as a reference implementation for an internal observability product on Amazon EKS.
+Treat this repository as a reference implementation for an internal observability product on Amazon EKS, and as the platform telemetry foundation for the autonomous SRE agent in [`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails).
 
-Although the directories currently live in one repository, reason about them as four distinct domains:
+Although the directories currently live in one repository, reason about them as five distinct domains:
 
 | Domain | Path | Ownership & Purpose |
 |---|---|---|
 | **Workloads** | `workloads/` | App-team-owned microservices (`golang-app`, `python-app`) and the per-node DaemonSet collector. |
-| **Observability Runtime** | `observability-runtime/` | Central gateway runtime manifests (Two-tier Router/Processor, NLB, Grafana ALB, alert rules). |
-| **Observability Product** | `observability-as-a-product/` | Observability product paved roads: onboarding contracts, 4 telemetry tiers, gateway policies, and GitOps baselines. |
+| **Observability Runtime** | `observability-runtime/` | Central gateway runtime manifests (Two-tier Router/Processor, NLB, Grafana ALB, alert rules, SRE agent RBAC). |
+| **Observability Product** | `observability-as-a-product/` | Observability product paved roads: onboarding contracts, 4 telemetry tiers, gateway policies, GitOps baselines, and AIOps/FinOps tooling (`aiops/`). |
 | **Infrastructure** | `terraform/` | Platform infrastructure: Day-1 EKS base module + Day-2 BYOC observability stack module. |
-| **Architecture** | `docs/` | Deep-dive architectural decisions, capacity planning (2k-200k QPS), multi-tenancy, and roadmap. |
+| **Architecture** | `docs/` | Deep-dive architectural decisions, capacity planning (2k-200k QPS), multi-tenancy, portability, and roadmap. |
 
 ### Topology Modes: Single-Cluster vs Multi-Cluster
 
@@ -233,6 +233,40 @@ Enterprise observability combines complementary instrumentation tiers (see `obse
 3. **Level 3: Programmatic SDK (Go SDK / OpenTelemetry API):** Explicit telemetry bootstrap (`telemetry.go`). Essential for compiled binaries (Go/Rust/C++) and domain-specific business metrics, internal span lifecycle tracking, and custom baggage propagation.
 4. **Level 4: Commercial Proprietary Agents (Datadog, Dynatrace):** Heavyweight proprietary agents that create vendor lock-in. This platform uses the OTel Gateway as an in-VPC "FinOps Firewall" to filter and compress telemetry before exporting to commercial SaaS when mandated.
 
+### SRE Agent & AIOps Readiness Contract
+
+This platform serves as the telemetry foundation and live execution target for the autonomous SRE agent built in [`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails). The cross-repo contract is governed by `sre-agent-guardrails/docs/INTEGRATION.md`.
+
+Key readiness components implemented on the platform:
+- **Read-Only Agent RBAC (`observability-runtime/sre-agent-rbac.yaml`):** Provisions `ServiceAccount: sre-agent` bound to a strictly read-only `ClusterRole` (`get`, `list`, `watch` on `pods`, `pods/log`, `events`, `deployments`, `replicasets`, `nodes`) in `default` and `observability` namespaces. No write verbs exist.
+- **Additive Alertmanager Routing (`terraform/modules/observability-stack/helm-values/mimir.yaml.tftpl`):** Mimir Alertmanager routes `severity=~"page|ticket"` alerts to `http://sre-agent.sre-agent.svc.cluster.local:8000/webhook/alert` with **`continue: true`**, ensuring existing `alert-sink` and AWS SSM Incident Manager escalation continue uninhibited.
+- **Reserved Audit Stream Labels:** Agent diagnostic actions and remediation audit trails land in Loki and Tempo tagged with `service.name=sre-agent` and `tenant.id=platform-aiops`.
+- **Adopt Baselines:**
+  - `observability-as-a-product/aiops/demos/`: Zero-code cluster diagnosis via `k8sgpt` (`k8sgpt-terminal-session.md`, `k8sgpt-analysis.json`).
+  - `observability-as-a-product/aiops/holmesgpt/`: HolmesGPT OSS baseline configuration scored against the custom agent.
+
+### Stable OpenTelemetry Semantic Conventions (HTTP Metrics)
+
+Both demo microservices emit OpenTelemetry stable semantic conventions for HTTP metrics:
+- **Go Microservice (`workloads/golang-app`):** Runs with `OTEL_SEMCONV_STABILITY_OPT_IN=http` in `deployment.yaml`. Emits stable `http_server_request_duration_seconds_count` (with labels: `job`, `http_response_status_code`, `http_route`, `http_request_method`). Legacy metric `http_server_duration_milliseconds_*` is disabled.
+- **Python Microservice (`workloads/python-app`):** Auto-instrumented via OTel Operator emitting stable `http_server_request_duration_seconds_count`.
+- **Mimir Ruler Alert Synchronization:** All 4 multi-window SLO burn-rate alerts (`Fast`, `Medium`, `Slow`, `Slowest`) in `observability-runtime/mimir-ruler-rules-configmap.yaml` query `http_server_request_duration_seconds_count{job=~".*golang-product-service.*"}`.
+- **Multi-Window Burn-Rate `for:` Windows:** In compliance with Google SRE workbook patterns, `Fast` burn-rate alerts retain `for: 2m` debounce duration to prevent single scrape anomalies from firing false pages while guaranteeing paging within 2 minutes of a real outage.
+
+### FinOps Telemetry Cost Allocation Engine
+
+`observability-as-a-product/aiops/finops/cost-analyzer.py` provides tenant and service-level cost attribution for observability data:
+- Queries Mimir directly via PromQL for live byte ingestion and span counts (`loki_ingester_bytes_received_total`, `tempo_distributor_bytes_received_total`, `http_server_request_duration_seconds_count`).
+- Correlates ingestion volume with AWS S3 storage pricing ($0.023/GB-month) broken down by `tenant.id` and `service.name`.
+- Verified by unit test suite in `observability-as-a-product/aiops/finops/test_cost_analyzer.py`.
+
+### Platform Portability Profile (MinIO & Zero-AWS Local Mode)
+
+This platform supports running both on AWS EKS and fully offline on local or sovereign Kubernetes clusters (OrbStack, kind, k3d) via S3-compatible MinIO:
+- **Zero-Fork Seam:** Base Helm value templates in `terraform/modules/observability-stack/helm-values/*.tftpl` expose unified S3 variables (`s3_endpoint`, `s3_insecure`, `s3_force_path_style`).
+- **Local Profile Automation:** `make local-create` provisions MinIO with automated bucket creation, renders templates natively using `local/render/main.tf` (`templatefile()`), and aliases the local host storage provisioner to `gp3`.
+- Complete architectural decisions, chart traps, and MinIO configurations are detailed in `docs/portability.md`.
+
 ## Scale Architecture
 
 Use `docs/architectural-decisions.md` as the main architecture reference.
@@ -274,6 +308,9 @@ make k8s-dashboards    # port-forward Grafana to localhost:3000
 make grafana-password  # fetch auto-generated admin password
 make helm-lint         # render pinned charts locally without an active cluster
 make k8s-destroy       # tear everything down
+make local-create      # deploy local cluster (OrbStack/kind/k3d) + MinIO + full stack
+make local-destroy     # tear down local cluster and MinIO storage
+python3 observability-as-a-product/aiops/finops/test_cost_analyzer.py # run FinOps test suite
 ```
 
 ### Things That Are Easy to Get Wrong Here (Top Traps)
@@ -290,6 +327,11 @@ Each of these installs cleanly and fails later silently. They are detailed throu
 8. **Incident Manager Replication Sets:** Multi-region replication sets in AWS Systems Manager Incident Manager (`aws_ssmincidents_replication_set`) require valid IAM/KMS permissions across all declared regions.
 9. **Go telemetry environment variables:** `OTEL_RESOURCE_ATTRIBUTES` only takes effect if Go builds the resource with `resource.WithFromEnv()`. Bare `resource.New` silences environment variables.
 10. **StorageClass ordering:** Always ensure `cluster-storage/` (gp3) is created before stateful backend charts run via Terraform `depends_on`.
+11. **Spanmetrics duplicate dimensions:** In `observability-runtime/gateways/02-gateway-tier3-processor.yaml`, do NOT declare `service.name` under `dimensions:` of the `spanmetrics` connector. `service.name` is an intrinsic default dimension in that connector; declaring it explicitly causes collector crash loop (`duplicate dimension`).
+12. **Alertmanager `continue: true` on agent routes:** In `mimir.yaml.tftpl`, the SRE agent route must declare `continue: true`. Without it, Alertmanager terminates routing at the agent receiver, silently suppressing `alert-sink` and AWS SSM Incident Manager escalation.
+13. **Go telemetry semconv stability:** Without `OTEL_SEMCONV_STABILITY_OPT_IN=http` in `workloads/golang-app/deployment.yaml`, the Go OTel HTTP instrumentation defaults to legacy metric `http_server_duration_milliseconds_*`, silently breaking Mimir Ruler SLO burn-rate alerts.
+14. **Burn-rate alert `for:` duration:** Fast burn-rate alerts (14.4x burn rate / 2% budget in 1h) require `for: 2m` to filter single scrape spikes while still alerting within 2 minutes of a real outage. Do not drop `for:` to 0s or remove it.
+15. **MinIO path-style & region traps:** Loki requires `loki.storage.s3.s3ForcePathStyle: true` with MinIO. AWS SDKs inside Loki/Tempo/Mimir crash if `region` is omitted (fallback to `us-east-1` even for local MinIO).
 
 ### Scope Rules & Repository Integrity
 

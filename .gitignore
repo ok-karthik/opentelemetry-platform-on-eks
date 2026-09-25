@@ -28,6 +28,8 @@ workloads/golang-app/golang-product-service
 
 # Python venv and Makefile scratch output
 .venv/
+__pycache__/
+*.pyc
 .tmp-manifests/
 .helm-render/
 .local-render/
