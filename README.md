@@ -71,12 +71,38 @@ flowchart LR
 
 *Assumes industry-standard telemetry fan-out: **1 App QPS ≈ 8 Spans + 2 Logs (10 events/sec)**. 14-day retention for Traces/Logs, 30-day for Metrics.*
 
-| Application Scale (QPS) | Monthly Telemetry Volume (Spans & Logs) | Commercial SaaS (Datadog / Dynatrace) | This EKS OTel Platform (Optimized with TAR & Spot) | Net Monthly Savings | Annual Savings (% Saved) | Strategic Recommendation |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **< 2,000 QPS** | < 20k events/sec<br/>• < 50M Spans / mo<br/>• < 200 GB Logs | **~$1,500 – $6,200 / mo** | **~$1,000 / mo**<br/>(Cluster base infra + nodes) | Marginal | Operational labor cancels out savings | 🛑 **Stay with SaaS / CloudWatch:** Unit economics do not justify internal platform operations. |
-| **20,000 QPS** | ~200k events/sec<br/>• ~415M Spans / mo<br/>• ~2 TB Logs, 25k Metrics | **~$30,000 – $60,000 / mo** | **~$4,660 / mo**<br/>• Compute: ~$3,080 (50% Spot)<br/>• S3: $350<br/>• Network TAR: $280<br/>• Metrics: ~$950 (AMP / Mimir) | **+$25,340 – $55,340 / mo** | **+$304,000 – $664,000 / yr**<br/>📉 **84% – 92% Saved** | 🚀 **Build & Deploy:** Massive ROI. Platform team investment pays for itself within 2 months. |
-| **50,000 QPS** | ~500k events/sec<br/>• ~1.0B Spans / mo<br/>• ~5 TB Logs, 60k Metrics | **~$100,000 – $146,000 / mo** | **~$9,710 / mo**<br/>• Compute: ~$6,160<br/>• S3: $850<br/>• Network TAR: $700<br/>• Metrics: ~$2,000 (AMP / Mimir) | **+$90,290 – $136,290 / mo** | **+$1.08M – $1.63M / yr**<br/>📉 **90% – 93% Saved** | 🚀 **Sweet Spot:** Self-hosting is mandatory. Commercial SaaS contracts require continuous discount battles. |
-| **100,000+ QPS** | ~1,000,000+ events/sec<br/>• ~2.1B Spans / mo<br/>• ~10 TB Logs, 120k Metrics | **$250,000+ / mo**<br/>($3.0M+ / year) | **~$18,320 / mo**<br/>• Compute: ~$12,320<br/>• S3: $1,600<br/>• Network TAR: $1,400<br/>• Metrics: ~$3,000 (AMP / Mimir) | **+$231,680+ / mo** | **+$2.78M+ / year**<br/>📉 **92.7% Saved** | 🏢 **Enterprise Scale:** Commercial SaaS fails completely. Multi-tier OTel + S3 backends deliver tens of millions in enterprise TCO savings. |
+| Application Scale | Commercial SaaS (Datadog / Dynatrace) | This Platform (EKS OTel) | Annual Savings | Strategic Recommendation |
+| :--- | :--- | :--- | :--- | :--- |
+| **< 2,000 QPS** | ~$1,500 – $6,200 / mo | **~$1,000 / mo** | Break-even | 🛑 **Stay with SaaS / CloudWatch** (labor cancels savings) |
+| **20,000 QPS** | ~$30,000 – $60,000 / mo | **~$4,660 / mo** | **+$304k – $664k / yr** (88% saved) | 🚀 **Build & Deploy** (ROI within 2 months) |
+| **50,000 QPS** | ~$100,000 – $146,000 / mo | **~$9,710 / mo** | **+$1.08M – $1.63M / yr** (91% saved) | 🚀 **Sweet Spot** (mandatory self-hosting) |
+| **100,000+ QPS** | $250,000+ / mo ($3.0M+/yr) | **~$18,320 / mo** | **+$2.78M+ / yr** (93% saved) | 🏢 **Enterprise Scale** (tens of millions saved) |
+
+<details>
+<summary><b>🔍 Click to view Monthly Infrastructure Cost Breakdown (Compute, S3, Network, Metrics)</b></summary>
+
+| Application Scale | Compute (EKS Spot/OD) | S3 Storage (Loki/Tempo) | Inter-AZ Network (TAR) | Metrics (AMP / Mimir) | Total Platform Cost |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **< 2,000 QPS** | ~$800 / mo | ~$30 / mo | ~$20 / mo | ~$150 / mo | **~$1,000 / mo** |
+| **20,000 QPS** | ~$3,080 / mo *(50% Spot)* | ~$350 / mo | ~$280 / mo | ~$950 / mo | **~$4,660 / mo** |
+| **50,000 QPS** | ~$6,160 / mo *(50% Spot)* | ~$850 / mo | ~$700 / mo | ~$2,000 / mo | **~$9,710 / mo** |
+| **100,000+ QPS** | ~$12,320 / mo *(50% Spot)* | ~$1,600 / mo | ~$1,400 / mo | ~$3,000 / mo | **~$18,320 / mo** |
+
+</details>
+
+<details>
+<summary><b>📊 Click to view Telemetry Volume Assumptions & Modeling</b></summary>
+
+| Application Scale | Ingestion Rate | Monthly Spans *(14-day)* | Monthly Logs *(14-day)* | Active Series *(30-day)* |
+| :--- | :--- | :--- | :--- | :--- |
+| **< 2,000 QPS** | < 20,000 events/sec | < 50M spans / mo | < 200 GB logs / mo | ~5,000 metrics |
+| **20,000 QPS** | ~200,000 events/sec | ~415M spans / mo | ~2.0 TB logs / mo | ~25,000 metrics |
+| **50,000 QPS** | ~500,000 events/sec | ~1.0B spans / mo | ~5.0 TB logs / mo | ~60,000 metrics |
+| **100,000+ QPS** | ~1,000,000+ events/sec | ~2.1B spans / mo | ~10.0 TB logs / mo | ~120,000 metrics |
+
+*Assumptions: 1 App QPS = 8 Spans + 2 Logs (10 events/sec). Retention: 14 days for traces & logs, 30 days for metrics. S3 list price: $0.023/GB-mo. Inter-AZ network charges assume $0.02/GB cross-AZ reduced by 90% via Topology Aware Routing (`PreferSameZone`).*
+
+</details>
 
 ### Key FinOps Levers
 
@@ -112,10 +138,25 @@ flowchart LR
 * **The 4 Levels of Telemetry Instrumentation:** Combines Linux kernel eBPF (catches instant `OOMKilled` Exit 137 and cross-AZ TCP drops), runtime auto-instrumentation (OTel Operator for Python/Java/Node.js stack traces and SQL queries), programmatic Go SDK (`telemetry.go`), and SaaS export. 👉 **[Read Instrumentation Guide](observability-as-a-product/onboarding/instrumentation-tiers-and-ebpf.md)**.
 * **Dual-Pipeline Spanmetrics & 10% Tail Sampling:** Fans out raw traces into two parallel paths: 100% of spans feed the `spanmetrics` connector for exact RED metrics, while tail-sampling retains 100% of errors and 10% of healthy calls for S3 storage.
 * **Two-Tier Consistent Hashing:** Stateless routers hash `trace_id` to route all spans of a distributed trace to the exact same stateful processor replica, guaranteeing complete trace assembly without data loss.
-* **Serverless Metrics with AMP:** Eliminates 10 stateful Mimir pods, cutting cluster memory requests by **~1.9 GiB** with zero pod maintenance toil.
+* **Self-Hosted Mimir & Serverless AMP:** Evaluates SLO burn-rate alerts locally via in-cluster Mimir Ruler by default, with an opt-in toggle (`use_amazon_managed_prometheus = true`) to eliminate 10 stateful pods and cut cluster memory requests by **~1.9 GiB** using AWS SigV4.
 * **Google SRE Multi-Window SLO Alerting:** Evaluates 14.4x, 6x, 3x, and 1x error budget burn rates against RED metrics, paging on-call engineers via AWS Systems Manager Incident Manager for critical fast burns and ticket sinks for slow burns.
 * **Out-of-Band Meta-Monitoring:** Collector self-telemetry (`:8888`/`:8889`) monitors data drops and backpressure, paired with an external AWS CloudWatch + SNS watchdog for total cluster failure. 👉 **[Read Meta-Monitoring Guide](observability-as-a-product/dashboards-and-alerts/META_MONITORING.md)**.
 * **Multi-Tenancy Access Control & Quotas:** Physical S3 prefix partitioning (`X-Scope-OrgID`), Grafana Organizations mapped to corporate SSO, and FinOps stream limits. 👉 **[Read Multi-Tenancy Architecture](docs/multi-tenancy.md)**.
+
+---
+
+## 🤖 AIOps & Autonomous SRE Agent Foundation
+
+This platform serves as the production telemetry and diagnostic target for autonomous SRE agents:
+
+* **Zero-Code Cluster Triage (`k8sgpt`):** CNCF sandbox AI engine evaluating live cluster health, catching pod OOMKills, crash loops, and failed readiness probes in plain English with zero custom code. 👉 *See [Terminal Session](observability-as-a-product/aiops/demos/k8sgpt-terminal-session.md) and [Analysis JSON](observability-as-a-product/aiops/demos/k8sgpt-analysis.json).*
+* **Measured Adopt Baseline (`HolmesGPT`):** Robusta's open-source multi-source root cause investigation tool configured against this cluster's Prometheus, Loki, Tempo, and Kubernetes events to benchmark autonomous agent accuracy. 👉 *See [HolmesGPT Configuration](observability-as-a-product/aiops/holmesgpt/).*
+* **Autonomous SRE Agent Foundation ([`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails) — *Coming Soon / In Development*):**
+  This platform provides the production telemetry, diagnostic RBAC, and alert routing foundation for the upcoming autonomous SRE agent:
+  - **Read-Only RBAC:** Dedicated `sre-agent` identity with read-only verbs across `default` and `observability` namespaces ([`sre-agent-rbac.yaml`](observability-runtime/sre-agent-rbac.yaml)).
+  - **Additive Alertmanager Webhook:** Routes `severity=~"page|ticket"` alerts to the agent with `continue: true` to preserve human on-call escalation.
+  - **Reserved Audit Streams:** Agent diagnostic actions and GenAI traces land in Loki and Tempo tagged with `service.name=sre-agent` and `tenant.id=platform-aiops`.
+* **FinOps Telemetry Cost Engine:** Standalone analyzer querying live Mimir PromQL ingestion vectors, calculating per-tenant and per-service S3 storage and processing spend ([`cost-analyzer.py`](observability-as-a-product/aiops/finops/cost-analyzer.py)).
 
 ---
 
@@ -124,13 +165,15 @@ flowchart LR
 | Path | Contents | Status |
 |---|---|---|
 | [`workloads/`](workloads/) | App-team-owned microservices (Go/Python SDK & manifests) and OTel DaemonSet agent | **Deployed** |
-| [`observability-runtime/`](observability-runtime/) | Central OTel Gateway, Ingestion NLB, Grafana ALB, and alert sink | **Deployed** |
+| [`observability-runtime/`](observability-runtime/) | Central OTel Gateway, Ingestion NLB, Grafana ALB, alert sink, and SRE agent RBAC | **Deployed** |
 | [`observability-as-a-product/`](observability-as-a-product/) | Service onboarding contracts, 4 levels of instrumentation, sampling policies & GitOps | *Product Paved Roads* |
+| [`observability-as-a-product/aiops/`](observability-as-a-product/aiops/) | AIOps baselines (k8sgpt, HolmesGPT) and FinOps telemetry cost allocation engine | **Deployed** |
 | [`terraform/`](terraform/) | Root orchestrator for 1-click full deployment or standalone EKS platform | **Deployed** |
+| [`terraform/local/`](terraform/local/) | Local portability profile: zero-AWS cluster provisioning (MinIO S3 + native template rendering) | **Deployed** |
 | [`terraform/modules/eks-base/`](terraform/modules/eks-base/) | Day-1 Base Infrastructure (VPC `10.1.0.0/16`, EKS 1.35, Nodes, Karpenter, cert-manager, gp3) | **Deployed** |
 | [`terraform/modules/observability-stack/`](terraform/modules/observability-stack/) | Day-2 "Bring Your Own Cluster" (BYOC) Observability Platform (AMP, S3, Loki, Tempo, Mimir, Grafana) | **Deployed** |
-| [`terraform/modules/observability-stack/helm-values/`](terraform/modules/observability-stack/helm-values/) | Loki, Tempo, and Grafana Helm values with inline architectural rationale | **Deployed** |
-| [`docs/`](docs/) | Decisions, multi-tenancy, deployed components inventory, and roadmap | *Documentation* |
+| [`terraform/modules/observability-stack/helm-values/`](terraform/modules/observability-stack/helm-values/) | Loki, Tempo, Mimir, and Grafana Helm values with inline architectural rationale | **Deployed** |
+| [`docs/`](docs/) | Decisions, multi-tenancy, deployed inventory, portability guide, and archived plan | *Documentation* |
 | [`.agents/AGENTS.md`](.agents/AGENTS.md) | Agent operational workflows, mental model, and failure traps | *Documentation* |
 
 <details>
@@ -142,7 +185,9 @@ docs/                               # Architectural decisions & traps
   scale-and-capacity-planning.md    # 2K to 200K QPS capacity matrix & tuning
   deployed-components.md            # Full Helm release & version inventory
   multi-tenancy.md                  # S3 isolation, Grafana Orgs, alerts
-  future-roadmap.md                 # AIOps, GenAI APM, IDP, & GitOps
+  portability.md                    # Local/sovereign cloud MinIO profile & chart traps
+  aiops-portability-plan-archive.md # Archived 5-phase plan & buy-vs-build landscape
+  future-roadmap.md                 # GenAI APM, IDP, & GitOps evolution
 
 workloads/                          # App-team-owned microservices
   golang-app/                       # DEPLOYED  Go SDK source code, Dockerfile, Svc, Ingress
@@ -154,6 +199,7 @@ observability-runtime/              # Platform runtime manifests
     00-gateway-rbac.yaml            #   ClusterRole & bindings for discovery
     01-gateway-tier2-router.yaml    #   Tier 2 Stateless Router (Deployment)
     02-gateway-tier3-processor.yaml #   Tier 3 Stateful Processor (Spanmetrics + Tail Sampling)
+  sre-agent-rbac.yaml               # DEPLOYED  Read-only RBAC for autonomous SRE agent
   grafana-ingress.yaml              # DEPLOYED  Internet-facing Grafana ALB
   grafana-dashboards-configmap.yaml # DEPLOYED  Baseline Grafana dashboards
   mimir-ruler-rules-configmap.yaml  # DEPLOYED  SLO burn-rate rule groups
@@ -164,38 +210,48 @@ observability-runtime/              # Platform runtime manifests
     opensearch-index-bootstrap-job.yaml # OpenSearch ISM policy
 
 observability-as-a-product/              # Observability product paved roads & governance
-  onboarding/                       #   Identity & SLO contract, 4 tiers
+  aiops/                                # DEPLOYED  AIOps baselines & FinOps engine
+    demos/                              #   k8sgpt zero-code cluster diagnosis
+    holmesgpt/                          #   HolmesGPT OSS evaluation baseline
+    finops/                             #   FinOps PromQL cost allocation script
+  onboarding/                           #   Identity & SLO contract, 4 tiers
     service-onboarding-contract.md
     instrumentation-tiers-and-ebpf.md
-    instrumentation-manifests/      #   Multi-runtime CRs & Go SDK template
-  gateway-policies/                 #   Policy templates
-    otel-gateway-multitenant.yaml   #   Multi-tenant routing connector
-    otel-gateway-tail-sampling.yaml #   Tail sampling cost budgeting
-  dashboards-and-alerts/            #   SRE math & rule generator
-    golden-signals/                 #   Raw JSON definitions
-    helm-chart/                     #   PrometheusRule Helm chart
-    META_MONITORING.md              #   Meta-monitoring architecture
-  argocd/                           #   GitOps App-of-Apps template
-    root-application.yaml           #   Root Application CR
-    appproject-platform.yaml        #   Platform AppProject
-    apps/                           #   Child application manifests
+    instrumentation-manifests/          #   Multi-runtime CRs & Go SDK template
+  gateway-policies/                     #   Policy templates
+    otel-gateway-multitenant.yaml       #   Multi-tenant routing connector
+    otel-gateway-tail-sampling.yaml     #   Tail sampling cost budgeting
+  dashboards-and-alerts/                #   SRE math & rule generator
+    golden-signals/                     #   Raw JSON definitions
+    helm-chart/                         #   PrometheusRule Helm chart
+    META_MONITORING.md                  #   Meta-monitoring architecture
+  argocd/                               #   GitOps App-of-Apps template
+    root-application.yaml               #   Root Application CR
+    appproject-platform.yaml            #   Platform AppProject
+    apps/                               #   Child application manifests
 
-terraform/                          # Cloud infrastructure & Platform modules
-  main.tf                           # Root orchestrator (1-Click demo entrypoint)
+terraform/                              # Cloud infrastructure & Platform modules
+  main.tf                               # Root orchestrator (1-Click demo entrypoint)
   variables.tf / outputs.tf
+  local/                                # DEPLOYED  Local Portability Profile (MinIO S3)
+    deploy-local.sh / destroy-local.sh  #   Local bootstrap & teardown scripts
+    minio.yaml                          #   MinIO S3 deployment & bucket-init Job
+    render-values.py                    #   Native Terraform templatefile() runner
+    render/main.tf                      #   Headless rendering module
+    overlays/                           #   Local MinIO Helm value overlays
   modules/
-    eks-base/                       # Day-1 Base Infrastructure
-      network.tf                    #   VPC (10.1.0.0/16), Subnets, S3 VPC Endpoint
-      eks.tf                        #   EKS 1.35, Managed Node Group
-      addons.tf                     #   cert-manager, aws-lb-controller, karpenter
-      cluster-storage/              #   gp3 StorageClass baseline
-      karpenter-provisioner/        #   Karpenter NodePool & EC2NodeClass
-    observability-stack/            # Day-2 "Bring Your Own Cluster" (BYOC) Module
-      amp.tf                        #   Amazon Managed Prometheus & Pod Identity
-      storage.tf                    #   S3 buckets (Loki/Tempo/Mimir) & IAM
-      meta-monitoring.tf            #   External Dead-Man's SNS pager
-      helm-charts.tf                #   Loki, Tempo, Mimir, Grafana, OpenSearch
-      helm-values/                  #   Loki/Tempo/Grafana Helm values
+    eks-base/                           # Day-1 Base Infrastructure
+      network.tf                        #   VPC (10.1.0.0/16), Subnets, S3 VPC Endpoint
+      eks.tf                            #   EKS 1.35, Managed Node Group
+      addons.tf                         #   cert-manager, aws-lb-controller, karpenter
+      cluster-storage/                  #   gp3 StorageClass baseline
+      karpenter-provisioner/            #   Karpenter NodePool & EC2NodeClass
+    observability-stack/                # Day-2 "Bring Your Own Cluster" (BYOC) Module
+      amp.tf                            #   Amazon Managed Prometheus & Pod Identity
+      storage.tf                        #   S3 buckets (Loki/Tempo/Mimir) & IAM
+      meta-monitoring.tf                #   External Dead-Man's SNS pager
+      helm-charts.tf                    #   Loki, Tempo, Mimir, Grafana, OpenSearch
+      helm-values/                      #   Loki/Tempo/Mimir/Grafana Helm values
 ```
 
 </details>
@@ -266,6 +322,17 @@ Stated plainly, because these read as features if you only skim the directory tr
 
 ### Deploy
 
+#### Option A: Offline / Sovereign Cloud Local Profile (Free, Zero-AWS)
+Run the full observability stack locally on OrbStack, kind, or k3d with MinIO S3 object storage:
+
+```bash
+make local-create      # provisions local cluster, MinIO S3, and deploys full stack
+make local-destroy     # tears down local cluster and storage
+```
+
+#### Option B: AWS EKS Cloud Mode
+Deploy the production-grade platform on AWS EKS:
+
 ```bash
 make k8s-create        # two-stage apply in Single-Cluster mode (~$150/mo, fastest)
 # OR: make k8s-create SINGLE_CLUSTER=false  # dual-cluster peered topology (~$300/mo)
@@ -304,13 +371,15 @@ make k8s-destroy
 
 ## 📦 Deployed Stack at a Glance
 
-* **Metrics Backend:** Amazon Managed Prometheus (AMP) — serverless via AWS SigV4 (zero pod maintenance).
+* **Metrics Backend:** Self-hosted Mimir (default with in-cluster Ruler SLO burn-rate evaluation) or Serverless Amazon Managed Prometheus (AMP opt-in via SigV4).
 * **Logs Backend:** Grafana Loki (SingleBinary) — native OTLP on Amazon S3 via Free S3 Gateway VPC Endpoints ($0.00/GB data transfer).
 * **Traces Backend:** Grafana Tempo (Monolithic) — distributed tracing on Amazon S3 via Free S3 Gateway VPC Endpoints.
 * **Unified UI:** Grafana (10.5.15) — single pane of glass linking PromQL, LogQL, and TraceQL.
 * **Gateway Fleet:** Central OTel Gateway — Tier 1 consistent-hash router + Tier 2 tail-sampling processor.
 * **Node Agents:** OTel Collector DaemonSet (`k8sattributes`, `filelog`) + OBI eBPF (kernel TCP & HTTP RED visibility).
 * **Alerting Engine:** AWS Systems Manager Incident Manager (multi-region escalation) + Alert Sink webhook (warning tickets).
+* **AIOps & SRE Agent Readiness:** k8sgpt zero-code triage, HolmesGPT evaluation baseline, SRE agent RBAC ([`sre-agent-rbac.yaml`](observability-runtime/sre-agent-rbac.yaml)), and FinOps telemetry cost analyzer.
+* **Local Portability Profile:** Zero-AWS offline profile via MinIO S3 and native Terraform templatefile rendering (`make local-create`).
 
 👉 *For the full version-pinned Helm release inventory, pod counts, and optional components (Mimir, Kafka, OpenSearch), see **[docs/deployed-components.md](docs/deployed-components.md)**.*
 

@@ -1,6 +1,6 @@
 # AIOps Phase 2b: HolmesGPT as the Adopt Baseline
 
-This directory hosts the deployment and configuration for **HolmesGPT** (Robusta, OSS), serving as the measured **Adopt Baseline** evaluated against our custom guardrailed agent in [`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails).
+This directory hosts the deployment and configuration for **HolmesGPT** (Robusta, OSS), serving as the measured **Adopt Baseline** evaluated against our custom guardrailed agent in [`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails) *(in development)*.
 
 ## Why HolmesGPT (The Adopt Baseline)
 
