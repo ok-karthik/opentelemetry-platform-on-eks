@@ -31,9 +31,11 @@ Pricing and feature comparison, from 2K to 200K QPS, for several application set
 2. **Below roughly 8K QPS, AWS-native is cheaper once you count labour.** Above that, LGTM wins on infrastructure by about 2–3.5x. All-in, it depends on how disciplined your CloudWatch setup is (section 4.2).
 3. **The README's old "88–93% saved" claim compared against an untuned, ingest-everything bill.** Against a tuned CloudWatch setup the infrastructure saving is about 70%, and against a best-case setup with labour included, LGTM is *more* expensive between 20K and 100K QPS. The README has been corrected.
 4. **AWS has real capabilities LGTM does not match out of the box:** log anomaly detection, managed sensitive-data masking, Live Tail, Logs Insights, vended-log ingestion with zero plumbing, Application Signals SLOs, and AI investigations that already understand your AWS resources (sections 5 and 7).
-5. **You do not have to choose.** AWS DevOps Agent connects to a self-hosted Grafana through MCP, and Grafana's MCP server exposes Loki and Tempo query tools (section 7). And this repo is already a partial hybrid (section 10).
+5. **You do not have to choose.** AWS DevOps Agent connects to a self-hosted Grafana (read-only), and Grafana's MCP server exposes Loki and Tempo query tools. AWS's own page does not yet name Tempo, so test it (section 7). This repo is already a partial hybrid (section 10).
 6. **One real defect in this repo:** Grafana runs as a single replica with persistence disabled (`grafana.yaml.tftpl`: `replicas: 1`, `persistence.enabled: false`). Cheap to fix (section 9).
 7. **A second defect, in the README:** its telemetry volume table was about 1,000x too low for spans and about 25x too low for logs against its own stated rule. It is corrected in the README.
+8. **Self-hosted AI vs AWS AI is not either/or.** Keep data in LGTM, run HolmesGPT (on Bedrock) as the primary investigator, use DevOps Agent as a second opinion over Grafana, and score both on the same faults (section 7.5).
+9. **Loki's weak spot is wide free-text search.** You do not need to move logs. Add a small search slice only if the free steps fail; CloudWatch Logs or VictoriaLogs are the cheapest options, and the repo's OpenSearch chart is a demo (section 8.4).
 
 ---
 
@@ -198,7 +200,7 @@ Legend: ✅ strong/native, 🟡 partial or needs work, ❌ not available out of 
 | **Natural-language query generation** | ✅ Logs Insights and Metrics Insights, with explanation | ❌ | Verified in AWS docs. Could be replicated with an LLM + Grafana MCP, but you build it. |
 | **Visualization** | ✅ automatic dashboards free, custom $3 | ✅ Grafana | Grafana is more flexible; CloudWatch is zero-effort. Grafana can also *read* CloudWatch. |
 | **Alerting** (metric filters + alarms) | ✅ | ✅ Loki/Mimir ruler on LogQL, spanmetrics | Different mechanism, equivalent outcome. |
-| **Log classes** (Standard vs Infrequent Access) | ✅ $0.50 vs $0.25/GB | n/a, S3 at ~$0.023/GB-month | IA has a reduced feature set (to my knowledge no Live Tail or metric filters; check current docs before depending on it). |
+| **Log classes** (Standard vs Infrequent Access) | ✅ $0.50 vs $0.25/GB | n/a, S3 at ~$0.023/GB-month | Verified in the AWS log-classes page (October 2026). **IA has:** Logs Insights (most commands, plus OpenSearch PPL/SQL), pipelines, cross-account, S3 export, S3 Tables, scheduled queries, data-protection masking. **IA does not have:** Live Tail, field indexing, facets, anomaly detection, metric filters, subscription filters, natural-language query assist, Container Insights log ingestion, and the `GetLogEvents`/`FilterLogEvents` APIs. Class cannot be changed after the log group is created. Pricing differs in ingestion only. |
 | **Log anomaly detection** (ML) | ✅ | ❌ | A real gap. Loki has pattern detection (`query_loki_patterns`) but that is not ML anomaly detection. |
 | **Data Protection** (detect and mask sensitive data) | ✅ $0.12/GB scanned | 🟡 OTel `redaction` / `transform` processors | LGTM approach is *preventive*: redact at the gateway before storage, free, but you own the rules. CloudWatch's is managed detection with built-in identifier types. |
 | **Metric filters** (logs → metrics) | ✅ | ✅ spanmetrics, count connector, Loki recording rules | |
@@ -284,6 +286,17 @@ What I could not confirm:
 - **Fallback if it does not:** run `mcp-grafana` yourself and register it as a custom MCP server in DevOps Agent ("Connecting MCP Servers" in the docs). That route is documented.
 - **How good the root-cause quality is** against Loki/Tempo data, and how many agent-seconds a noisy incident costs. Your own archive notes (`docs/aiops-portability-plan-archive.md`) rated DevOps Agent "weak for cross-service/app-level correlation across K8s + logs + traces". The Grafana integration may change that. Re-test it.
 
+**Re-checked against AWS's current "Connecting Grafana" page (October 2026):**
+
+- The integration is **read-only**. Write tools are disabled and cannot be enabled.
+- It needs Grafana 9.0 or later, an HTTPS endpoint (public, or private through a VPC connection), and a service-account token with the Viewer role.
+- You can register more than one Grafana per account and attach several to one Agent Space (added July 29, 2026).
+- Grafana contact points can trigger investigations by webhook. **Only `title`, `description`, `priority` and the incident reference reach the agent.** Alert labels do not. Put what an investigation needs in the alert's `summary` annotation.
+- The page describes the data as "metrics, dashboards, and alerting data". It does **not** name Loki or Tempo. Loki is named in the GA announcement. Tempo is still unconfirmed.
+- The page lists ClickHouse data-source tools as unsupported, but the changelog (May 27, 2026) says ClickHouse queries through Grafana now work. AWS's own pages disagree, so test it if you go that way (section 8.4).
+- Proactive incident prevention does not use Grafana tools yet ("planned for a future release").
+- If you use Amazon Managed Grafana: it has no webhook contact points, and its service-account tokens expire after at most 30 days. Self-hosted Grafana avoids both.
+
 Mimir is Prometheus-compatible, so it is reachable through the same Prometheus data source.
 
 ### 7.2 AWS AI services at a glance
@@ -333,6 +346,73 @@ You can keep the data in LGTM and put the "brain" wherever you like. The data la
 
 **Honest take:** AWS's AI advantage is real inside AWS: it already understands your resources, deployments and CloudTrail. It is not exclusive to CloudWatch (pattern B), and the repo's own agent path (pattern C) gives you control at the cost of building and operating it. The deciding questions are who is accountable when the agent is wrong, and whether your incidents are mostly AWS-resource problems (favours AWS AI) or application-logic problems across services (favours having all signals in one queryable place, which is Grafana).
 
+### 7.5 Self-hosted AIOps vs. AWS AIOps: which to use
+
+Two separate choices are easy to mix up: **where the data lives** (your LGTM stack) and **which AI reads it**. You can change the second without touching the first.
+
+**Sending metrics to AWS vs. letting AWS query you.** Querying is better.
+
+- DevOps Agent reads Mimir, Loki and (probably) Tempo through Grafana, so nothing is copied.
+- AWS-resource metrics (NLB, RDS, EKS control plane) are already in CloudWatch for free, so the agent sees them without any pipeline from you.
+- Sending a small slice is cheap if you want it: about 50 SLO series at 30 s is roughly 1.7 GB a month, which is under $1 at CloudWatch OTel rates. The only reason to do it is to use CloudWatch alarms or anomaly detection on those series. CloudWatch investigations and anomaly detection read only data that is in CloudWatch.
+
+| Tool | What it reaches | Strength | Weakness | Who runs it |
+|---|---|---|---|---|
+| **k8sgpt** | Cluster state only | Zero code, quick first look | No log or trace correlation | You |
+| **HolmesGPT** | Mimir, Loki, Tempo, K8s events (all read-only) | Sees every signal in one place; you control prompts, runbooks and the model | You own its mistakes; quality depends on the LLM | You |
+| **Coroot** | Its own eBPF data (service map, golden signals) | Topology and blast radius without code changes | Brings its own storage and overlaps LGTM; answers a different question | You |
+| **AWS DevOps Agent** | CloudWatch, CloudTrail, deployments, plus Grafana (and Datadog, Dynatrace, Splunk, New Relic), Azure and on-prem via MCP | Knows your AWS resources; managed; webhook-triggered; custom agents and skills; learns your topology | Per-agent-second price; a black box; your own notes rated it weak at cross-service app-level correlation | AWS |
+| **sre-agent-guardrails** (yours) | Whatever you wire up; read-only RBAC shipped | Full control of guardrails and eval | You build and operate it | You |
+
+Things that matter for the choice:
+
+- **Data residency.** `observability-as-a-product/aiops/holmesgpt/config.yaml` uses `gpt-4o-mini`, so log and trace excerpts go to OpenAI. HolmesGPT can use Bedrock models through its LiteLLM layer (check your version), which keeps the data inside your AWS account.
+- **Cost per investigation.** DevOps Agent is about $4 for an 8-minute investigation at $0.0083 per agent-second (section 7.2; the pricing page was not re-checked on October 14). HolmesGPT's cost is LLM tokens plus a small pod. I did not measure it; my guess is cents to a dollar, so treat that as an estimate.
+- **They can talk to each other.** AWS now exposes DevOps Agent through MCP and A2A, so your own agent could call it as a tool, or the reverse (section 7.6). I have not tested this.
+- **Different problem shapes.** AWS-resource incidents (a node group, an RDS failover, a bad deploy) favour DevOps Agent. Cross-service application incidents favour whichever tool sees all the signals and your runbooks. That second claim comes from your archive notes, not a benchmark.
+
+**Recommendation (pattern D):**
+
+1. Data stays in LGTM. Nothing new is pushed to AWS except what already lives there.
+2. HolmesGPT (later `sre-agent-guardrails`) is the primary investigator for application-level incidents. Switch its model to Bedrock.
+3. DevOps Agent is the second opinion through `mcp-grafana` or the built-in Grafana integration. Use the free trial.
+4. Score both on the same injected faults, using the fault-injection eval already planned. That turns "likely" into a measurement.
+5. Put an investigation-ready `summary` annotation on every alert that pages (section 7.1). It helps both tools.
+
+**When this changes:**
+
+| If | Then |
+|---|---|
+| AWS-only estate and no platform team | DevOps Agent plus CloudWatch investigations is simpler; skip the in-cluster agent |
+| Most incidents are AWS-resource problems | DevOps Agent should win; drop the in-cluster agent |
+| Data must not leave the cluster | HolmesGPT with a self-hosted model is the only fit |
+| The eval shows the agents cannot tell which service is the root cause | Add Coroot as a read-only extension (your archive's stated trigger) |
+
+One routing detail to verify: your alerts fire from the Mimir ruler through Alertmanager, not through Grafana contact points. DevOps Agent's documented webhook payload is its own JSON shape, and Alertmanager's webhook body has a fixed format, so you would need either Grafana-managed alert rules or a small adapter. I have not tested this.
+
+### 7.6 What AWS shipped in 2026 and what it changes
+
+Sources: the AWS What's New feed, the "This Month in AWS Observability" blog, and the DevOps Agent and CloudWatch documentation histories, read on October 14, 2026. Dates are announcement dates. None of this was hands-on tested.
+
+| Date | Change | Effect on this comparison |
+|---|---|---|
+| Mar 2026 | DevOps Agent generally available; Azure and on-prem investigation via MCP | Not tied to CloudWatch; supports the "bring your own data" pattern |
+| Apr 2026 | CloudWatch OTel metrics in preview, **GA in June**, with PromQL and 15 months retention | Metrics-only: no separate Prometheus backend needed. Priced per GB (section 4.4 already uses that model) |
+| Apr 2026 | OTel Container Insights for EKS (preview) | Cheaper container metrics line ($0.08/GB in the model) |
+| Mar 2026 | CloudWatch Logs accepts logs over HTTP, **including an OTLP/HTTP endpoint** | Your OTel gateway can dual-write a log slice with a plain exporter; no agent needed |
+| Mar 27 2026 | Infrequent Access log class gains Data Protection and OpenSearch PPL/SQL | Closes part of the feature gap of the cheap class. Verified table in section 5.1 |
+| Mar to Jun 2026 | Logs Insights: JOIN and sub-queries, `lookup`, 23 new commands, 100,000-row results, 100 concurrent queries, tag-based log-group selection | Narrows the "LogQL vs SQL" gap in section 8 |
+| Apr 2026 | CloudWatch pipelines: conditional processing, drop-events processor, AI-assisted configuration | You can filter inside CloudWatch. **Not verified: whether dropped events are still billed as ingested.** My A3 case drops at the collector |
+| Jun 2026 | DevOps Agent: custom SRE agents, bring-your-own sub-agents, MCP and A2A, memories, Git-managed skills, five new Regions | Makes "AWS agent as one component of your own agent" possible |
+| Jun 2026 | DevOps Agent falls back to Athena for S3 logs over 1 GB when a Logs Insights query times out | Matters for the S3 + Athena archive pattern |
+| Jun to Jul 2026 | DevOps Agent release management (preview): readiness review and autonomous release testing | Outside this repo's scope; relevant only if you want AWS in your delivery pipeline |
+| Jul 2026 | Multiple Grafana registrations per Agent Space | One agent can read both production and staging Grafana |
+| Oct 2 and 9 2026 | Fork an investigation; review a finished investigation for quality; Ohio, Seoul, Paris and Stockholm Regions | Useful for scoring the agent against your own faults, which is what step 4 above needs |
+| Jun 2026 | New `PutLogAlarm` API (CloudWatch document history) | Alarms directly on logs. Not priced in the model |
+| Documented | CloudWatch Logs Intelligent Tiering page exists | **Not priced.** Check it before sizing long retention |
+
+What did **not** change the conclusions: CloudWatch rates used in the model were pulled earlier from the Price List API and I did not re-pull them in this round, so a rate change after that pull would not show up here. The cost direction is unchanged: CloudWatch still charges per GB ingested and per GB scanned, and LGTM's cost is fixed compute plus S3.
+
 ---
 
 ## 8. Log search
@@ -366,10 +446,44 @@ An engineer running ten 1-day searches during an incident spends about $42. A sc
 ### 8.3 Practical guidance
 
 - **Day-to-day debugging of your own services:** Loki. Queries are label-scoped, fast, and free per query, and Grafana links a log line to its trace.
-- **"Find this order ID / error string anywhere in the last two weeks":** this is where Loki is weakest. Use the OpenSearch path, or send a filtered slice to CloudWatch (section 10.3).
+- **"Find this order ID / error string anywhere in the last two weeks":** this is where Loki is weakest. Start from the trace if you have a trace ID. Otherwise see section 8.4 for what to add and what not to.
 - **AWS-service logs (ALB, WAF, VPC Flow, CloudTrail, Lambda):** keep them in CloudWatch or S3 + Athena. Pulling them through Loki is plumbing you do not need.
 - **Compliance and audit searches over months:** S3 + Athena (or S3 Tables) is the cheapest, not CloudWatch.
 - **Sensitive data:** mask at the gateway (OTel `redaction`) so it never lands anywhere; add CloudWatch Data Protection only for log groups you cannot control upstream.
+
+### 8.4 Do we need to add a search tool next to Loki?
+
+**Not for everything, and not as a replacement.** Loki is good at label-scoped, time-bounded queries. It is weak at "find this string in everything over a wide window", because it reads every chunk it cannot rule out. That is by design. The fix is to cover that one case cheaply, not to move all logs.
+
+**First, try the free steps (cost: engineering time only):**
+
+1. **Search through traces.** If the log line carries a trace ID, find the trace in Tempo and open its logs. That is a narrow, fast Loki query.
+2. **Use structured metadata for IDs.** Order ID, customer ID and trace ID belong in structured metadata, not labels (high-cardinality labels hurt Loki). The repo already sets `allow_structured_metadata: true` in `loki.yaml.tftpl`.
+3. **Narrow the window.** Searching one hour with a label selector is cheap; searching 14 days is not.
+
+**Bloom filters are not the answer today.** Loki's query acceleration with bloom filters exists, but the current docs (release 3.7) still call it **experimental, with no SLA and no on-call support**, aimed at **more than 75 TB of logs a month**, and **not supported in single-binary mode**. This repo runs Loki as `deploymentMode: SingleBinary`. Under the repo's own volume rule, 75 TB a month is roughly 30K QPS, so it only becomes relevant near the top of your range, and only after moving to a distributed deployment.
+
+**If those are not enough, add a search slice.** Do not index everything. Send the lines people search for: errors and warnings, plus audit or business events, which is typically a few percent of volume. The model uses 3%.
+
+| Option | What it is | Cost shape | Ops | Reachable by AWS DevOps Agent | Main risk |
+|---|---|---|---|---|---|
+| **CloudWatch Logs slice (Standard class)** | Dual-write the slice from the OTel gateway over OTLP/HTTP | At 3% of volume: about **$75 / $750 / $1,900 / $3,800 / $7,500 per month** at 2K / 20K / 50K / 100K / 200K QPS (model; ingestion only, 14-day storage and one scan per GB add about 2%; the 3% share is an assumption) | None | Yes, natively (and Athena fallback) | Scan cost grows with window; a dashboard that scans repeatedly is the budget risk (section 8.2) |
+| **Amazon OpenSearch Serverless** | Managed full-text index | About **$350 a month floor** for a production collection (2 OCU at $0.24 per OCU-hour); AWS's own example for 1,440 GB a month of logs is about $384 a month before ingestion | Low | Via Grafana data source if your MCP/Grafana path supports it. Not verified | Floor cost is wasted at small volume; per-GB cost grows with the index |
+| **OpenSearch in the cluster (repo's optional stack)** | Existing chart | Cluster compute and EBS | **High, and the shipped chart is a demo:** single node, 10 Gi volume, security plugin disabled | Not verified | Not production-ready as shipped. Needs sizing, replicas, auth, snapshots |
+| **VictoriaLogs** | Single-binary log database with token indexes and bloom filters; Grafana plugin | Vendor and third-party benchmarks claim large RAM and disk savings versus Loki and Elasticsearch; **not verified by me** | Low to medium; one more system | Not through the built-in Grafana path unless it is exposed as a Grafana data source the agent can query. Not verified | Another datastore; community Grafana plugin; benchmarks are from vendor-adjacent sources |
+| **ClickHouse (for example ClickStack)** | Columnar database with text indexes | Low storage cost; strong for analytics | Medium to high | AWS docs conflict on ClickHouse support (section 7.1) | You model schemas and run the database |
+| **Quickwit** | Search on object storage | Low | Medium | Not verified | Reported strategic risk after its acquisition by a large vendor; check project status before depending on it |
+| **S3 + Athena (or S3 Tables)** | Cold archive and audits | Cheapest per GB; per-TB scanned | Low | Yes, the agent falls back to Athena for large S3 logs | Not interactive |
+
+**My recommendation:**
+
+1. **Do the free steps first**, and keep Loki as the default for debugging.
+2. **If you are an AWS-heavy team with no appetite for another database**, dual-write the error and audit slice to **CloudWatch Logs (Standard class)**. You get Logs Insights, Live Tail, anomaly detection, native reach from DevOps Agent, and no new system to run. Use the Standard class, not Infrequent Access, because field indexing, Live Tail and anomaly detection are Standard-only (section 5.1).
+3. **If you want one Grafana pane and no per-query fee**, run a short proof of concept with **VictoriaLogs** on the same slice and compare it with CloudWatch on the same 20 real searches. I would not pick it from benchmarks alone.
+4. **OpenSearch only if** you need security/SIEM-style search, relevance ranking, or already staff it. Do not take the repo's single-node demo to production as is.
+5. **Do not send all logs to CloudWatch.** At 2K QPS the out-of-the-box CloudWatch bill is already about $12K a month against about $1.1K on the platform (section 4.1).
+
+**What to measure before choosing:** pick 20 searches your engineers actually ran last quarter. For each, record the time window, whether a trace ID existed, and how long Loki took. If most are label-scoped or have a trace ID, you need nothing new. If many are "string in everything for a week", add the slice.
 
 ---
 
@@ -403,7 +517,7 @@ The model's **Grafana HA add-on** is $100 → $500/month across tiers and covers
 
 ### Alternative: Amazon Managed Grafana
 
-AMG ($9/editor, $5/viewer) removes the Grafana outage problem and can still query self-hosted Mimir/Loki/Tempo through a private connection. For 10 editors + 40 viewers that is $290/month, which is often cheaper than the labour of running HA Grafana. Trade-offs: less plugin and configuration freedom, and dashboards tie to an AWS account.
+AMG ($9/editor, $5/viewer) removes the Grafana outage problem and can still query self-hosted Mimir/Loki/Tempo through a private connection. For 10 editors + 40 viewers that is $290/month, which is often cheaper than the labour of running HA Grafana. Trade-offs: less plugin and configuration freedom, and dashboards tie to an AWS account. Two limits matter if you also use DevOps Agent: AMG has no webhook contact points (so it cannot trigger investigations by webhook), and its service-account tokens last at most 30 days, so you must rotate the token registered in DevOps Agent.
 
 ---
 
@@ -522,4 +636,6 @@ Base hybrid cost from the model (LGTM + AWS-service signals, without the options
 - **Intermediate QPS values (for example 5K, 10K) are interpolated**, not computed.
 - **Prices change.** Application Signals and OTel metrics pricing are new; re-run `aws-native-vs-lgtm-cost-model.py` against a fresh price list before a budget decision.
 - **AI capabilities** are described from AWS and Grafana documentation, not from hands-on testing. Specifically unverified: Tempo reachability through DevOps Agent's built-in Grafana integration, root-cause quality on Loki/Tempo data, and agent-seconds on noisy incidents.
-- **Items marked * in section 6 and the Infrequent Access feature limits** come from my background knowledge, not a page I fetched.
+- **Items marked * in section 6** come from my background knowledge, not a page I fetched. The Infrequent Access feature list is now verified (section 5.1).
+- **Sections 7.5, 7.6 and 8.4 (added October 14, 2026)** rely on AWS documentation and What's New pages read that day, plus Loki's own bloom-filter docs. VictoriaLogs, ClickHouse and Quickwit claims come from vendor and third-party posts and were not tested. OpenSearch Serverless prices come from AWS's pricing page and a third-party summary, not the Price List API, and were not added to the cost model. The search-slice cost row reuses the model's 3% error-slice numbers.
+- **Not re-verified on October 14:** CloudWatch per-GB rates and the DevOps Agent per-second rate.
