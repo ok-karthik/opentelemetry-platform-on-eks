@@ -2,7 +2,7 @@
 
 A reference enterprise observability platform on Amazon EKS. Application teams emit vendor-neutral OTLP telemetry to node-local agents and a central two-tier OpenTelemetry Gateway fleet, while the platform team centrally manages enrichment, tail-sampling, routing, retention, and FinOps cost attribution.
 
-By coupling tail-based sampling, S3-backed storage (Loki, Tempo, Mimir), and in-cluster SLO alerting via Mimir Ruler, this platform slashes observability spend by **70% to 90%** compared to commercial SaaS without vendor lock-in. It also provides an **AI-ready diagnostic target** (read-only RBAC, additive alert routing, zero-code triage via [`k8sgpt`](https://k8sgpt.ai), and [`HolmesGPT`](https://github.com/robusta-dev/holmesgpt) baselines) for autonomous agents such as the upcoming [`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails) *(coming soon / in development)*.
+By coupling tail-based sampling, S3-backed storage (Loki, Tempo, Mimir), and in-cluster SLO alerting via Mimir Ruler, this platform cuts observability infrastructure spend by roughly **70% to 90%** compared to commercial SaaS list prices, and by about **70%** compared to a tuned AWS-native CloudWatch setup (before platform-team labour; see [FinOps ROI](#-finops-roi-where-self-hosting-wins-and-where-it-doesnt)), without vendor lock-in. It also provides an **AI-ready diagnostic target** (read-only RBAC, additive alert routing, zero-code triage via [`k8sgpt`](https://k8sgpt.ai), and [`HolmesGPT`](https://github.com/robusta-dev/holmesgpt) baselines) for autonomous agents such as the upcoming [`sre-agent-guardrails`](https://github.com/ok-karthik/sre-agent-guardrails) *(coming soon / in development)*.
 
 ---
 
@@ -62,12 +62,14 @@ flowchart LR
 
 ---
 
-## 💰 FinOps ROI: Slashing Observability Spend by 70–93%
+## 💰 FinOps ROI: Where Self-Hosting Wins (and Where It Doesn't)
 
 > ⚠️ **The 2,000–5,000 QPS Rule (When to NOT Build This Platform):**
-> If your application traffic is under **2,000 to 5,000 QPS**, **do NOT build or self-host this platform.** The engineering labor of operating Kubernetes nodes, stateful storage, and version upgrades outweighs cloud savings. At that scale, stay with **Datadog, Grafana Cloud, or AWS CloudWatch**. Self-hosting delivers massive positive ROI once application traffic exceeds **10,000–20,000 QPS**.
+> If your application traffic is under **2,000 to 5,000 QPS**, **do NOT build or self-host this platform.** The engineering labor of operating Kubernetes nodes, stateful storage, and version upgrades outweighs cloud savings. At that scale, stay with **Datadog, Grafana Cloud, or AWS CloudWatch**. Against **commercial SaaS**, self-hosting delivers large positive ROI once application traffic exceeds **10,000–20,000 QPS**. Against a **tuned AWS-native CloudWatch** setup the break-even is lower (about **8,000 QPS**, modeled with labour included; see the second table below), but the gap is much smaller than against SaaS.
 
 ### Cost Comparison by Application QPS Scale
+
+> **Read this table with two caveats.** The "This Platform" column is **infrastructure only** (it excludes the platform team's time), while the SaaS column is a full vendor bill. The SaaS figures are vendor list-price estimates that have **not** been re-verified. The AWS-native comparison further below uses AWS list prices pulled directly from the AWS Price List API.
 
 *Assumes industry-standard telemetry fan-out: **1 App QPS ≈ 8 Spans + 2 Logs (10 events/sec)**. 14-day retention for Traces/Logs, 30-day for Metrics.*
 
@@ -77,6 +79,29 @@ flowchart LR
 | **20,000 QPS** | ~$30,000 – $60,000 / mo | **~$4,660 / mo** | **+$304k – $664k / yr** (88% saved) | 🚀 **Build & Deploy** (ROI within 2 months) |
 | **50,000 QPS** | ~$100,000 – $146,000 / mo | **~$9,710 / mo** | **+$1.08M – $1.63M / yr** (91% saved) | 🚀 **Sweet Spot** (mandatory self-hosting) |
 | **100,000+ QPS** | $250,000+ / mo ($3.0M+/yr) | **~$18,320 / mo** | **+$2.78M+ / yr** (93% saved) | 🏢 **Enterprise Scale** (tens of millions saved) |
+
+### Cost Comparison vs. AWS-Native (CloudWatch)
+
+*AWS list prices, us-east-1, October 2026. Same traffic model as above. "Out of the box" ingests 100% of spans and all logs. "Tuned" applies 5% span sampling, drops about half of log volume before ingest, and uses the $0.25/GB log class for the rest. "Best case" is 2% span sampling, 25% of log volume, and 35% of metric series. The platform column includes a Grafana HA add-on ($100–$500/mo). Labour is an estimate (0.25 → 2.0 FTE for the platform vs 0.05 → 0.5 FTE for AWS-native, at $15K per FTE-month). Full method, rate card, and a reproducible model: **[docs/aws-native-vs-lgtm-comparison.md](docs/aws-native-vs-lgtm-comparison.md)**.*
+
+| Application Scale | CloudWatch out of the box | CloudWatch tuned | CloudWatch best case | **This Platform** (infra) | Infra saving vs tuned | All-in with labour: tuned CloudWatch vs this platform |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **2,000 QPS** | ~$12,400 / mo | ~$1,900 / mo | ~$1,000 / mo | **~$1,100 / mo** | 42% | ~$2,600 vs ~$4,900 → **CloudWatch wins** |
+| **20,000 QPS** | ~$95,900 / mo | ~$15,200 / mo | ~$7,300 / mo | **~$4,800 / mo** | 68% | ~$16,700 vs ~$12,300 → platform wins |
+| **50,000 QPS** | ~$234,000 / mo | ~$33,500 / mo | ~$17,300 / mo | **~$10,000 / mo** | 70% | ~$36,500 vs ~$25,000 → platform wins |
+| **100,000 QPS** | ~$463,000 / mo | ~$62,800 / mo | ~$32,100 / mo | **~$18,700 / mo** | 70% | ~$67,300 vs ~$41,200 → platform wins |
+| **200,000 QPS** | ~$919,000 / mo | ~$120,500 / mo | ~$60,700 / mo | **~$33,700 / mo** | 72% | ~$128,000 vs ~$63,700 → platform wins |
+
+> **How to read this.** The 88–93% figure in the first table is against *commercial SaaS*. Against *CloudWatch*, the infrastructure saving is **about 68–72%** versus a tuned setup (20K–200K QPS). Counting labour changes the picture mainly through one assumption: how much extra engineering time self-hosting really needs. The table above assumes 0.5–2.0 dedicated FTE for the platform. If an existing platform/SRE team absorbs it instead:
+>
+> | Scenario (all-in, USD/mo) | 20K QPS | 50K QPS | 100K QPS | 200K QPS |
+> | :--- | :--- | :--- | :--- | :--- |
+> | **This platform**, 0.2 FTE marginal labour | ~$7,800 | ~$13,000 | ~$21,700 | ~$36,700 |
+> | CloudWatch tuned, 0.2 FTE | ~$18,200 | ~$36,500 | ~$65,800 | ~$123,500 |
+> | CloudWatch best case, 0.2 FTE | ~$10,300 | ~$20,300 | ~$35,100 | ~$63,700 |
+> | CloudWatch best case, but keeping **100%** of logs | ~$20,000 | ~$44,500 | ~$83,600 | ~$160,600 |
+>
+> With labour split evenly (an existing platform/SRE team absorbing roughly 0.2 FTE either way), this platform is cheaper than every CloudWatch variant from 20K QPS up; at 2K QPS it is roughly a tie with best-case CloudWatch (~$4,100 vs ~$4,000) and CloudWatch tuned is about 20% more. The only case where CloudWatch comes out cheaper is the *best case* with **full dedicated labour on the self-hosted side** (0.5–1.5 FTE, which is what the model assumes in the table above) **and** CloudWatch discarding about 75% of application logs, which the platform keeps in full on S3. That is a different retention guarantee, not an apples-to-apples one. Logs are the largest CloudWatch line at every scale. Discounts (EDP, Savings Plans) are not modeled, and labour figures are estimates, not measurements.
 
 <details>
 <summary><b>🔍 Click to view Monthly Infrastructure Cost Breakdown (Compute, S3, Network, Metrics)</b></summary>
@@ -93,14 +118,16 @@ flowchart LR
 <details>
 <summary><b>📊 Click to view Telemetry Volume Assumptions & Modeling</b></summary>
 
-| Application Scale | Ingestion Rate | Monthly Spans *(14-day)* | Monthly Logs *(14-day)* | Active Series *(30-day)* |
+| Application Scale | Ingestion Rate | Raw Spans / mo *(before sampling)* | Raw Logs / mo *(before filtering)* | Active Series *(30-day, 30 s scrape)* |
 | :--- | :--- | :--- | :--- | :--- |
-| **< 2,000 QPS** | < 20,000 events/sec | < 50M spans / mo | < 200 GB logs / mo | ~5,000 metrics |
-| **20,000 QPS** | ~200,000 events/sec | ~415M spans / mo | ~2.0 TB logs / mo | ~25,000 metrics |
-| **50,000 QPS** | ~500,000 events/sec | ~1.0B spans / mo | ~5.0 TB logs / mo | ~60,000 metrics |
-| **100,000+ QPS** | ~1,000,000+ events/sec | ~2.1B spans / mo | ~10.0 TB logs / mo | ~120,000 metrics |
+| **2,000 QPS** | 20,000 events/sec | ~42 B spans | ~10.5 B lines (~5 TB at 512 B) | ~19,000 |
+| **20,000 QPS** | ~200,000 events/sec | ~420 B spans | ~105 B lines (~50 TB) | ~280,000 |
+| **50,000 QPS** | ~500,000 events/sec | ~1.05 T spans | ~263 B lines (~125 TB) | ~625,000 |
+| **100,000 QPS** | ~1,000,000 events/sec | ~2.1 T spans | ~526 B lines (~250 TB) | ~955,000 |
 
-*Assumptions: 1 App QPS = 8 Spans + 2 Logs (10 events/sec). Retention: 14 days for traces & logs, 30 days for metrics. S3 list price: $0.023/GB-mo. Inter-AZ network charges assume $0.02/GB cross-AZ reduced by 90% via Topology Aware Routing (`PreferSameZone`).*
+*Raw volume is what CloudWatch bills on at ingest; this platform's gateway reduces it before storage (tail sampling keeps roughly 5% of spans). Active series are back-solved from the Metrics cost line above at a 30 s scrape interval.*
+
+*Assumptions: 1 App QPS = 8 Spans + 2 Logs (10 events/sec); 1 KB per span, 512 B per log line, 730-hour month. Retention: 14 days for traces & logs, 30 days for metrics. S3 list price: $0.023/GB-mo. Inter-AZ network charges assume $0.02/GB cross-AZ reduced by 90% via Topology Aware Routing (`PreferSameZone`).*
 
 </details>
 
@@ -120,9 +147,13 @@ flowchart LR
 #### 1. Why use Grafana Loki instead of sending EKS logs to CloudWatch?
 | Dimension | AWS CloudWatch Logs | Grafana Loki on Amazon S3 (This Repo) |
 | :--- | :--- | :--- |
-| **Ingestion Cost** | **$0.50 per GB** ($1,000 / month for 2 TB) | **$0.00 ingestion fee** ($0.023/GB S3 storage = ~$46 / month for 2 TB) |
-| **VPC Data Transfer** | Subject to NAT Gateway bandwidth ($0.045/GB) | **$0.00 / GB** via internal S3 Gateway VPC Endpoint |
-| **Trace Correlation** | Manual text searches; no native span links | **1-Click TraceID navigation**: clicking a log line opens the Tempo trace waterfall |
+| **Ingestion Cost** | **$0.50 per GB** Standard class ($1,024 / month for 2 TB), or **$0.25 per GB** in the Infrequent Access class with a reduced feature set. Plus $0.03/GB-month storage and $0.005/GB scanned per Logs Insights query. | **No per-GB ingest fee**, but you pay for the compute that runs Loki (ingesters, queriers, compactor; included in the platform cost above), S3 at $0.023/GB-month, and S3 requests. |
+| **VPC Data Transfer** | NAT Gateway data processing ($0.045/GB) only if you have no VPC endpoints. With interface endpoints (PrivateLink) it is about $0.01/GB plus an hourly endpoint charge. | **$0.00 / GB** via internal S3 Gateway VPC Endpoint |
+| **Trace Correlation** | Supported: Application Signals / ServiceLens correlate traces and logs when trace IDs are in the log lines. | **1-Click TraceID navigation** in Grafana: clicking a log line opens the Tempo trace waterfall. Not unique to Loki, but the same UI as your metrics and traces. |
+| **Search & analytics** | Logs Insights (own query language, PPL, SQL), field indexes, Live Tail, ML log anomaly detection, managed sensitive-data masking. Strong for ad-hoc forensics with no setup. | LogQL: fast on labels, slower for free-text over long windows. Optional OpenSearch path in this repo for full-text. No built-in log anomaly detection. |
+| **Operations** | None. Fully managed. | You run it (HA, upgrades, capacity). |
+
+*Full comparison, including what each side does better, is in **[docs/aws-native-vs-lgtm-comparison.md](docs/aws-native-vs-lgtm-comparison.md)**.*
 
 #### 2. When is Kafka actually needed vs. Direct Mode?
 * **Direct Ingestion (Default, $0 extra cost, <50ms latency):** In 95% of deployments, OTel Gateways push directly to Loki, Tempo, and Mimir with in-memory retry queues. Stay with direct mode if traffic is below 20K QPS.
@@ -188,6 +219,8 @@ docs/                               # Architectural decisions & traps
   portability.md                    # Local/sovereign cloud MinIO profile & chart traps
   aiops-portability-plan-archive.md # Archived 5-phase plan & buy-vs-build landscape
   future-roadmap.md                 # GenAI APM, IDP, & GitOps evolution
+  aws-native-vs-lgtm-comparison.md  # CloudWatch/AWS-native vs LGTM: pricing, features, AIOps
+  aws-native-vs-lgtm-cost-model.py  # Reproducible cost model behind that comparison
 
 workloads/                          # App-team-owned microservices
   golang-app/                       # DEPLOYED  Go SDK source code, Dockerfile, Svc, Ingress
